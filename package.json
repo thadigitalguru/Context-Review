@@ -1,0 +1,35 @@
+{
+  "name": "context-review",
+  "version": "1.0.0",
+  "description": "See what your AI sees. Framework-agnostic LLM context window visualizer and proxy.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "llm",
+    "context-window",
+    "proxy",
+    "debugging",
+    "ai",
+    "anthropic",
+    "openai",
+    "google",
+    "token-tracking",
+    "cost-optimization"
+  ],
+  "author": "Context Review",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thadigitalguru/Context-Review"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "uuid": "^13.0.0"
+  }
+}

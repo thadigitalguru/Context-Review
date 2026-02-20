@@ -1,0 +1,9 @@
+node_modules/
+data/
+.env
+*.log
+.cache/
+.local/
+.upm/
+.config/
+attached_assets/
