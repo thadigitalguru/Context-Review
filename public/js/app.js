@@ -639,6 +639,7 @@ function renderComposition(comp) {
       ${comp.categories.map(c => c.tokens > 0 ? `<div class="comp-legend-item">
         <div class="comp-legend-dot" style="background:${c.color}"></div>
         <span>${c.name}</span>
+        ${c.token_method ? `<span class="comp-legend-method ${c.token_confidence || 'low'}">${escapeHtml(shortTokenMethod(c.token_method))}</span>` : ''}
         <span class="comp-legend-pct">${c.percentage}%</span>
       </div>` : '').join('')}
     </div>
@@ -811,14 +812,14 @@ async function showCaptureDetail(captureId) {
   modal.onclick = e => { if (e.target === modal) modal.remove(); };
 
   const cats = b ? [
-    { label: 'System Prompts', tokens: b.system_prompts.tokens, pct: b.system_prompts.percentage, color: '#6366f1' },
-    { label: 'Tool Definitions', tokens: b.tool_definitions.tokens, pct: b.tool_definitions.percentage, color: '#f59e0b', extra: `${b.tool_definitions.count} tools` },
-    { label: 'Tool Calls', tokens: b.tool_calls.tokens, pct: b.tool_calls.percentage, color: '#ef4444', extra: `${b.tool_calls.count} calls` },
-    { label: 'Tool Results', tokens: b.tool_results.tokens, pct: b.tool_results.percentage, color: '#10b981', extra: `${b.tool_results.count} results` },
-    { label: 'Assistant Text', tokens: b.assistant_text.tokens, pct: b.assistant_text.percentage, color: '#f97316' },
-    { label: 'User Text', tokens: b.user_text.tokens, pct: b.user_text.percentage, color: '#06b6d4', extra: `${b.user_text.messageCount} msgs` },
-    { label: 'Thinking', tokens: b.thinking_blocks.tokens, pct: b.thinking_blocks.percentage, color: '#a855f7' },
-    { label: 'Media', tokens: b.media.tokens, pct: b.media.percentage, color: '#ec4899', extra: `${b.media.count} items` },
+    { label: 'System Prompts', tokens: b.system_prompts.tokens, pct: b.system_prompts.percentage, color: '#6366f1', method: b.system_prompts.token_method, confidence: b.system_prompts.token_confidence },
+    { label: 'Tool Definitions', tokens: b.tool_definitions.tokens, pct: b.tool_definitions.percentage, color: '#f59e0b', extra: `${b.tool_definitions.count} tools`, method: b.tool_definitions.token_method, confidence: b.tool_definitions.token_confidence },
+    { label: 'Tool Calls', tokens: b.tool_calls.tokens, pct: b.tool_calls.percentage, color: '#ef4444', extra: `${b.tool_calls.count} calls`, method: b.tool_calls.token_method, confidence: b.tool_calls.token_confidence },
+    { label: 'Tool Results', tokens: b.tool_results.tokens, pct: b.tool_results.percentage, color: '#10b981', extra: `${b.tool_results.count} results`, method: b.tool_results.token_method, confidence: b.tool_results.token_confidence },
+    { label: 'Assistant Text', tokens: b.assistant_text.tokens, pct: b.assistant_text.percentage, color: '#f97316', method: b.assistant_text.token_method, confidence: b.assistant_text.token_confidence },
+    { label: 'User Text', tokens: b.user_text.tokens, pct: b.user_text.percentage, color: '#06b6d4', extra: `${b.user_text.messageCount} msgs`, method: b.user_text.token_method, confidence: b.user_text.token_confidence },
+    { label: 'Thinking', tokens: b.thinking_blocks.tokens, pct: b.thinking_blocks.percentage, color: '#a855f7', method: b.thinking_blocks.token_method, confidence: b.thinking_blocks.token_confidence },
+    { label: 'Media', tokens: b.media.tokens, pct: b.media.percentage, color: '#ec4899', extra: `${b.media.count} items`, method: b.media.token_method, confidence: b.media.token_confidence },
   ].filter(c => c.tokens > 0) : [];
 
   modal.innerHTML = `<div class="modal">
@@ -833,7 +834,7 @@ async function showCaptureDetail(captureId) {
     </div>
     ${cats.map(c => `<div class="detail-row">
       <span class="label"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.color};margin-right:6px"></span>${c.label}${c.extra ? ' (' + c.extra + ')' : ''}</span>
-      <span class="value">${fmt(c.tokens)} <span style="color:var(--text-muted);font-weight:400">(${c.pct}%)</span></span>
+      <span class="value">${fmt(c.tokens)} <span style="color:var(--text-muted);font-weight:400">(${c.pct}%)</span>${c.method ? ` <span class="detail-method ${c.confidence || 'low'}">${escapeHtml(shortTokenMethod(c.method))}</span>` : ''}</span>
     </div>`).join('')}
     ${b ? `<div class="detail-row" style="border-top:1px solid var(--border);margin-top:6px;padding-top:10px">
       <span class="label"><strong>Total Input</strong></span>
@@ -878,6 +879,13 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function shortTokenMethod(method) {
+  if (!method) return 'unknown';
+  if (method === 'heuristic_chars') return 'heuristic';
+  if (method.startsWith('tiktoken_')) return method.replace('tiktoken_', '');
+  return method;
 }
 
 function selectSession(id) {

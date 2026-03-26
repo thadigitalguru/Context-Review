@@ -537,6 +537,29 @@ body {
   gap: 6px;
 }
 
+.comp-legend-method {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  text-transform: lowercase;
+}
+
+.comp-legend-method.high {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.comp-legend-method.low {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
+
 .comp-legend-dot {
   width: 10px;
   height: 10px;
@@ -1045,6 +1068,30 @@ body {
 
 .detail-row .label { color: var(--text-secondary); }
 .detail-row .value { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+.detail-method {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  text-transform: lowercase;
+}
+
+.detail-method.high {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.detail-method.low {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
 
 /* ===== CONTEXT DIFF ===== */
 .diff-section {

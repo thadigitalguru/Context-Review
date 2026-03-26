@@ -24,14 +24,14 @@ const CATEGORY_KEYS = [
 
 function createEmptyBreakdown(provider, agent) {
   return {
-    system_prompts: { tokens: 0, content: [], percentage: 0 },
-    tool_definitions: { tokens: 0, content: [], count: 0, percentage: 0 },
-    tool_calls: { tokens: 0, content: [], count: 0, percentage: 0 },
-    tool_results: { tokens: 0, content: [], count: 0, percentage: 0 },
-    assistant_text: { tokens: 0, content: [], percentage: 0 },
-    user_text: { tokens: 0, content: [], messageCount: 0, percentage: 0 },
-    thinking_blocks: { tokens: 0, content: [], percentage: 0 },
-    media: { tokens: 0, count: 0, percentage: 0 },
+    system_prompts: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    tool_definitions: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    tool_calls: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    tool_results: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    assistant_text: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    user_text: { tokens: 0, content: [], messageCount: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    thinking_blocks: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    media: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
     total_tokens: 0,
     model: '',
     provider,
@@ -129,6 +129,7 @@ function parseRequest(capture) {
     } else if (item.category === 'media') {
       breakdown.media.tokens += stats.tokens;
       breakdown.media.count++;
+      breakdown.media.content.push(baseEntry);
     }
   });
 
@@ -139,6 +140,12 @@ function parseRequest(capture) {
       breakdown[key].percentage = Math.round((breakdown[key].tokens / breakdown.total_tokens) * 100);
     });
   }
+
+  CATEGORY_KEYS.forEach((key) => {
+    const summary = summarizeCategoryCounting(breakdown[key]);
+    breakdown[key].token_method = summary.method;
+    breakdown[key].token_confidence = summary.confidence;
+  });
 
   breakdown.model = normalized.model;
   breakdown.token_counting = summarizeTokenCounting(breakdown);
@@ -247,6 +254,30 @@ function summarizeTokenCounting(breakdown) {
     method: 'heuristic_chars',
     confidence: 'low',
     source: 'local_estimate',
+  };
+}
+
+function summarizeCategoryCounting(category) {
+  const content = Array.isArray(category.content) ? category.content : [];
+  const exactSample = content.find((entry) => String(entry.token_method || '').startsWith('tiktoken_'));
+  if (exactSample) {
+    return {
+      method: exactSample.token_method,
+      confidence: exactSample.token_confidence || 'high',
+    };
+  }
+
+  const sample = content.find((entry) => entry.token_method);
+  if (sample) {
+    return {
+      method: sample.token_method,
+      confidence: sample.token_confidence || 'low',
+    };
+  }
+
+  return {
+    method: 'heuristic_chars',
+    confidence: 'low',
   };
 }
 
