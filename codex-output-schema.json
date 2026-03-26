@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Context Review Codex Output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "changes",
+    "verification",
+    "risks"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "Short high-level description of what was done."
+    },
+    "changes": {
+      "type": "array",
+      "description": "Concrete code or file changes.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verification": {
+      "type": "array",
+      "description": "Commands run or checks performed.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "description": "Known limitations, assumptions, or follow-up items.",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

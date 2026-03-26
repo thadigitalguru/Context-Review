@@ -1,0 +1,19 @@
+[project]
+name = "Context-Review"
+root = "/Users/tittoh/Context-Review"
+language = "javascript"
+
+[app]
+setup_command = "./setup.sh"
+start_command = "npm start"
+
+[services]
+dashboard_url = "http://localhost:5000"
+proxy_url = "http://localhost:8080"
+
+[notes]
+summary_file = "project-context.txt"
+agents_file = "AGENTS.md"
+plans_file = "PLANS.md"
+skills_file = "SKILLS.md"
+output_schema_file = "codex-output-schema.json"
