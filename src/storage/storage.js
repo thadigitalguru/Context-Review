@@ -2,23 +2,24 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const DATA_DIR = path.join(__dirname, '../../data');
-const DATA_FILE = path.join(DATA_DIR, 'sessions.json');
-
 const ALL_CATS = ['system_prompts', 'tool_definitions', 'tool_calls', 'tool_results', 'assistant_text', 'user_text', 'thinking_blocks', 'media'];
 
 class SessionStorage {
   constructor() {
     this.sessions = new Map();
     this.captures = [];
+    this.persistenceDisabled = process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE === '1';
+    this.dataDir = process.env.CONTEXT_REVIEW_DATA_DIR || path.join(__dirname, '../../data');
+    this.dataFile = path.join(this.dataDir, 'sessions.json');
     this.loadFromDisk();
   }
 
   loadFromDisk() {
     try {
-      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-      if (fs.existsSync(DATA_FILE)) {
-        const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      if (this.persistenceDisabled) return;
+      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
+      if (fs.existsSync(this.dataFile)) {
+        const data = JSON.parse(fs.readFileSync(this.dataFile, 'utf8'));
         if (data.sessions) {
           for (const [id, session] of Object.entries(data.sessions)) {
             this.sessions.set(id, session);
@@ -35,12 +36,13 @@ class SessionStorage {
 
   saveToDisk() {
     try {
-      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      if (this.persistenceDisabled) return;
+      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
       const data = {
         sessions: Object.fromEntries(this.sessions),
         captures: this.captures.slice(-1000),
       };
-      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+      fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
     } catch (e) {
       console.error('Failed to save session data:', e.message);
     }

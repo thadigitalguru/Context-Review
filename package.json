@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "express": "^5.2.1",
+    "js-tiktoken": "^1.0.21",
     "uuid": "^13.0.0"
   }
 }

@@ -56,7 +56,7 @@ function parseRequest(capture) {
   const breakdown = createEmptyBreakdown(provider, agent);
 
   normalized.systemPrompts.forEach((prompt) => {
-    const stats = countTokens(prompt.text, { label: 'system_prompt' });
+    const stats = countTokens(prompt.text, { label: 'system_prompt', model: normalized.model, provider });
     breakdown.system_prompts.tokens += stats.tokens;
     breakdown.system_prompts.content.push({
       type: 'text',
@@ -70,7 +70,7 @@ function parseRequest(capture) {
   });
 
   normalized.toolDefinitions.forEach((tool) => {
-    const stats = countTokens(tool.raw, { label: 'tool_definition' });
+    const stats = countTokens(tool.raw, { label: 'tool_definition', model: normalized.model, provider });
     breakdown.tool_definitions.tokens += stats.tokens;
     breakdown.tool_definitions.count++;
     breakdown.tool_definitions.content.push({
@@ -83,7 +83,7 @@ function parseRequest(capture) {
   });
 
   normalized.items.forEach((item) => {
-    const stats = countTokens(item.text, { label: item.category });
+    const stats = countTokens(item.text, { label: item.category, model: normalized.model, provider });
     const preview = stringifyValue(item.text).substring(0, item.category === 'tool_results' ? 300 : 200);
     const baseEntry = {
       role: item.role,
@@ -141,6 +141,7 @@ function parseRequest(capture) {
   }
 
   breakdown.model = normalized.model;
+  breakdown.token_counting = summarizeTokenCounting(breakdown);
   breakdown.response_tokens = response && response.body
     ? extractResponseTokens(response, provider)
     : { input: 0, output: 0 };
@@ -220,6 +221,33 @@ function extractResponseTokens(response, provider) {
   }
 
   return { input: 0, output: 0 };
+}
+
+function summarizeTokenCounting(breakdown) {
+  const samples = [
+    ...breakdown.system_prompts.content,
+    ...breakdown.tool_definitions.content,
+    ...breakdown.tool_calls.content,
+    ...breakdown.tool_results.content,
+    ...breakdown.assistant_text.content,
+    ...breakdown.user_text.content,
+    ...breakdown.thinking_blocks.content,
+  ].filter(Boolean);
+
+  const exactSample = samples.find((sample) => String(sample.token_method || '').startsWith('tiktoken_'));
+  if (exactSample) {
+    return {
+      method: exactSample.token_method,
+      confidence: 'high',
+      source: 'tokenizer',
+    };
+  }
+
+  return {
+    method: 'heuristic_chars',
+    confidence: 'low',
+    source: 'local_estimate',
+  };
 }
 
 module.exports = { parseRequest, detectAgent, detectHtml, detectRoleConfusion };
