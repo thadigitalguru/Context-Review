@@ -377,13 +377,6 @@ function renderFindingsSection() {
     compaction: 'blue', media: 'pink', other: 'blue',
   };
 
-  const tagScores = {};
-  state.findings.forEach(f => {
-    const cat = f.category || 'other';
-    let score = f.severity === 'critical' ? 20 : f.severity === 'high' ? 50 : f.severity === 'medium' ? 80 : 100;
-    if (!tagScores[cat] || score < tagScores[cat]) tagScores[cat] = score;
-  });
-
   const filtered = state.findingFilter
     ? state.findings.filter(f => f.category === state.findingFilter)
     : state.findings;
@@ -404,7 +397,7 @@ function renderFindingsSection() {
     <div>
       ${filtered.map(f => {
         const sevClass = f.severity === 'critical' ? 'critical' : f.severity === 'high' ? 'structural' : f.severity === 'medium' ? 'suggestion' : 'info';
-        const sevLabel = f.severity === 'critical' ? 'Critical' : f.severity === 'high' ? 'Structural' : 'medium';
+        const sevLabel = f.severity === 'critical' ? 'Critical' : f.severity === 'high' ? 'Structural' : f.severity === 'medium' ? 'Suggestion' : 'Info';
         const icon = f.severity === 'critical' ? '&#9888;' : f.severity === 'high' ? '&#9888;' : '&#9888;';
         const iconClass = f.severity === 'critical' ? 'critical' : f.severity === 'high' ? 'warn' : 'info';
         return `<div class="finding-card">
@@ -412,6 +405,7 @@ function renderFindingsSection() {
           <div class="finding-body">
             <div class="finding-title">${f.title}</div>
             <div class="finding-desc">${f.description}</div>
+            ${renderFindingMeta(f)}
             ${f.preview ? `<div class="finding-preview">${escapeHtml(f.preview.substring(0, 140))}</div>` : ''}
           </div>
           <div class="finding-severity ${sevClass}">${sevLabel}</div>
@@ -419,6 +413,50 @@ function renderFindingsSection() {
       }).join('')}
     </div>
   </div>`;
+}
+
+function renderFindingMeta(finding) {
+  const chips = [];
+  const details = [];
+
+  if (finding.estimatedSavings && typeof finding.estimatedSavings.tokens === 'number') {
+    const confidence = finding.estimatedSavings.confidence || 'heuristic';
+    chips.push(`<span class="finding-chip savings">Save ~${fmt(finding.estimatedSavings.tokens)} tokens</span>`);
+    chips.push(`<span class="finding-chip confidence">${escapeHtml(confidence)}</span>`);
+  }
+
+  if (finding.source) {
+    details.push(`<div class="finding-detail-row"><span class="finding-detail-label">Source</span><span class="finding-detail-value">${formatSource(finding.source)}</span></div>`);
+  }
+
+  if (Array.isArray(finding.sources) && finding.sources.length > 0) {
+    details.push(`<div class="finding-detail-row"><span class="finding-detail-label">Touches</span><span class="finding-detail-value">${finding.sources.slice(0, 3).map((entry) => formatSource(entry.source)).join(' · ')}</span></div>`);
+  }
+
+  if (Array.isArray(finding.tools) && finding.tools.length > 0) {
+    details.push(`<div class="finding-detail-row"><span class="finding-detail-label">Tools</span><span class="finding-detail-value">${finding.tools.slice(0, 4).map((tool) => `${escapeHtml(tool.name)} (${fmt(tool.tokens || 0)})`).join(' · ')}</span></div>`);
+  }
+
+  if (finding.usage && typeof finding.usage.percent === 'number') {
+    chips.push(`<span class="finding-chip usage">${finding.usage.percent}% window</span>`);
+  }
+
+  if (chips.length === 0 && details.length === 0) return '';
+
+  return `<div class="finding-meta">
+    ${chips.length > 0 ? `<div class="finding-chips">${chips.join('')}</div>` : ''}
+    ${details.length > 0 ? `<div class="finding-details">${details.join('')}</div>` : ''}
+  </div>`;
+}
+
+function formatSource(source) {
+  if (!source) return 'Unknown';
+  const parts = [];
+  if (source.role) parts.push(source.role);
+  if (source.msgIndex !== undefined && source.msgIndex !== null) parts.push(`msg ${source.msgIndex}`);
+  if (source.partIndex !== undefined && source.partIndex !== null) parts.push(`part ${source.partIndex}`);
+  if (source.path) parts.push(source.path);
+  return escapeHtml(parts.join(' · '));
 }
 
 function renderContextDiff() {

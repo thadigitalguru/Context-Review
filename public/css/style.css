@@ -641,6 +641,81 @@ body {
   line-height: 1.5;
 }
 
+.finding-meta {
+  margin-top: 10px;
+}
+
+.finding-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.finding-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.finding-chip.savings {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.finding-chip.confidence {
+  background: var(--blue-bg);
+  color: var(--blue);
+  text-transform: uppercase;
+}
+
+.finding-chip.usage {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
+
+.finding-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.finding-detail-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.finding-detail-label {
+  color: var(--text-muted);
+  min-width: 44px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.finding-detail-value {
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  word-break: break-word;
+}
+
+.finding-preview {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  line-height: 1.5;
+}
+
 .finding-severity {
   padding: 3px 10px;
   border-radius: 4px;
