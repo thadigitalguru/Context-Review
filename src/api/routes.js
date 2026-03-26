@@ -64,6 +64,9 @@ function createAPIRouter(storage) {
   });
 
   router.get('/sessions/:id/captures', (req, res) => {
+    const session = storage.getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
     const captures = storage.getSessionCaptures(req.params.id);
     res.json(captures.map(c => ({
       id: c.id,
@@ -93,6 +96,7 @@ function createAPIRouter(storage) {
   router.get('/sessions/:id/capture/:captureId', (req, res) => {
     const capture = storage.getCaptureDetail(req.params.captureId);
     if (!capture) return res.status(404).json({ error: 'Capture not found' });
+    if (capture.sessionId !== req.params.id) return res.status(404).json({ error: 'Capture not found in session' });
     res.json(capture);
   });
 
@@ -100,7 +104,8 @@ function createAPIRouter(storage) {
     const captures = storage.getSessionCaptures(req.params.id);
     if (captures.length === 0) return res.json({ composition: null });
 
-    const turnIdx = req.query.turn !== undefined ? parseInt(req.query.turn) : captures.length - 1;
+    const rawTurn = req.query.turn !== undefined ? parseInt(req.query.turn, 10) : captures.length - 1;
+    const turnIdx = Number.isNaN(rawTurn) ? captures.length - 1 : rawTurn;
     const capture = captures[Math.min(Math.max(0, turnIdx), captures.length - 1)];
     if (!capture || !capture.breakdown) return res.json({ composition: null });
 
@@ -186,7 +191,8 @@ function createAPIRouter(storage) {
       totalRequests += session.requestCount;
       totalInputTokens += session.totalInputTokens;
       totalOutputTokens += session.totalOutputTokens;
-      const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model);
+      const cacheTokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
+      const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
       totalCost += cost.totalCost;
     }
 

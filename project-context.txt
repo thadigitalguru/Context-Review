@@ -1,0 +1,21 @@
+Context Review is a Node.js application that combines a local dashboard with a transparent proxy for LLM API traffic.
+
+The dashboard runs on port 5000 and the proxy runs on port 8080.
+
+Supported request families:
+- Anthropic: /v1/messages
+- OpenAI: /v1/chat/completions
+- Google: /v1beta/models/*
+
+Core flow:
+1. The proxy captures outbound API requests and inbound responses.
+2. The parser estimates token usage and classifies request content into eight categories.
+3. The storage layer groups captures into sessions and computes turn-by-turn diffs.
+4. The findings engine generates optimization warnings and informational insights.
+5. The API routes expose sessions, captures, composition, timeline, diffs, findings, stats, and LHAR export to the frontend.
+
+Current implementation notes:
+- Token counting is heuristic, based mostly on string length.
+- Session data persists to data/sessions.json.
+- There is no automated test suite in the repo yet.
+- The project currently has a single initial commit and a small, readable codebase.
