@@ -134,6 +134,7 @@ function createAPIRouter(storage) {
         cost,
         turn: turnIdx,
         messageCount,
+        token_counting: b.token_counting,
       },
     });
   });

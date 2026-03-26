@@ -351,6 +351,7 @@ function renderOverview(area) {
   const findingsHTML = renderFindingsSection();
   const diffHTML = renderContextDiff();
   const compHTML = renderComposition(comp);
+  const countingHTML = renderTokenCountingSummary(comp?.token_counting);
 
   const msgCount = comp ? (comp.messageCount || 0) : state.captures.length;
   const msgTokens = comp ? comp.total_tokens : s.totalInputTokens;
@@ -359,7 +360,7 @@ function renderOverview(area) {
     <div style="font-size:11px;color:var(--text-muted)">View all &rarr;</div>
   </div>`;
 
-  area.innerHTML = statsHTML + findingsHTML + diffHTML + compHTML + messagesHTML;
+  area.innerHTML = statsHTML + findingsHTML + diffHTML + compHTML + countingHTML + messagesHTML;
 }
 
 function renderFindingsSection() {
@@ -644,6 +645,24 @@ function renderComposition(comp) {
   </div>`;
 }
 
+function renderTokenCountingSummary(tokenCounting) {
+  if (!tokenCounting) return '';
+  return `<div class="counting-section">
+    <div class="section-header">
+      <div class="section-title">TOKEN COUNTING<span class="turn-info">How these numbers were computed</span></div>
+    </div>
+    <div class="counting-card">
+      <div class="counting-pill method">${escapeHtml(tokenCounting.method || 'unknown')}</div>
+      <div class="counting-pill confidence ${escapeHtml(tokenCounting.confidence || 'low')}">${escapeHtml(tokenCounting.confidence || 'low')} confidence</div>
+      <div class="counting-text">
+        ${tokenCounting.source === 'tokenizer'
+          ? 'Counts come from a tokenizer-backed path for this model family.'
+          : 'Counts are estimated heuristically for this provider/model path.'}
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderMessages(area) {
   if (state.captures.length === 0) {
     area.innerHTML = '<div class="empty-state"><div class="empty-state-icon">&#128172;</div><p>No messages captured</p></div>';
@@ -824,6 +843,23 @@ async function showCaptureDetail(captureId) {
       <span class="label">Response Output</span>
       <span class="value">${fmt(b.response_tokens.output)}</span>
     </div>` : ''}
+    ${b && b.token_counting ? `
+      <div style="margin-top:16px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px">TOKEN COUNTING</div>
+        <div class="detail-row">
+          <span class="label">Method</span>
+          <span class="value">${escapeHtml(b.token_counting.method || 'unknown')}</span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Confidence</span>
+          <span class="value">${escapeHtml(b.token_counting.confidence || 'low')}</span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Source</span>
+          <span class="value">${escapeHtml(b.token_counting.source || 'unknown')}</span>
+        </div>
+      </div>
+    ` : ''}
     ${b && b.tool_definitions.content && b.tool_definitions.content.length > 0 ? `
       <div style="margin-top:16px">
         <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:8px">TOOL DEFINITIONS</div>
