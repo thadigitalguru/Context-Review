@@ -396,11 +396,13 @@ function renderFindingsSection() {
     </div>
     <div>
       ${filtered.map(f => {
+        const findingIndex = state.findings.indexOf(f);
         const sevClass = f.severity === 'critical' ? 'critical' : f.severity === 'high' ? 'structural' : f.severity === 'medium' ? 'suggestion' : 'info';
         const sevLabel = f.severity === 'critical' ? 'Critical' : f.severity === 'high' ? 'Structural' : f.severity === 'medium' ? 'Suggestion' : 'Info';
         const icon = f.severity === 'critical' ? '&#9888;' : f.severity === 'high' ? '&#9888;' : '&#9888;';
         const iconClass = f.severity === 'critical' ? 'critical' : f.severity === 'high' ? 'warn' : 'info';
-        return `<div class="finding-card">
+        const jumpable = hasFindingJumpTarget(f);
+        return `<div class="finding-card ${jumpable ? 'jumpable' : ''}" ${jumpable ? `onclick="goToFinding(${findingIndex})"` : ''}>
           <div class="finding-icon ${iconClass}">${icon}</div>
           <div class="finding-body">
             <div class="finding-title">${f.title}</div>
@@ -441,6 +443,10 @@ function renderFindingMeta(finding) {
     chips.push(`<span class="finding-chip usage">${finding.usage.percent}% window</span>`);
   }
 
+  if (hasFindingJumpTarget(finding)) {
+    chips.push('<span class="finding-chip jump">Jump to turn</span>');
+  }
+
   if (chips.length === 0 && details.length === 0) return '';
 
   return `<div class="finding-meta">
@@ -457,6 +463,46 @@ function formatSource(source) {
   if (source.partIndex !== undefined && source.partIndex !== null) parts.push(`part ${source.partIndex}`);
   if (source.path) parts.push(source.path);
   return escapeHtml(parts.join(' · '));
+}
+
+function hasFindingJumpTarget(finding) {
+  return Boolean(
+    finding.captureId ||
+    finding.source ||
+    (Array.isArray(finding.sources) && finding.sources.length > 0) ||
+    (Array.isArray(finding.tools) && finding.tools.length > 0)
+  );
+}
+
+async function goToFinding(index) {
+  const finding = state.findings[index];
+  if (!finding || !state.currentSessionId) return;
+
+  const captureId = finding.captureId
+    || finding.source?.captureId
+    || finding.sources?.[0]?.captureId
+    || finding.tools?.[0]?.captureId
+    || null;
+
+  if (captureId) {
+    const captureIndex = state.captures.findIndex((capture) => capture.id === captureId);
+    if (captureIndex >= 0) {
+      await goToTurn(captureIndex);
+      await showCaptureDetail(captureId);
+      return;
+    }
+  }
+
+  const msgIndex = finding.source?.msgIndex || finding.sources?.[0]?.source?.msgIndex || finding.tools?.[0]?.source?.msgIndex;
+  if (typeof msgIndex === 'number' && state.timeline.length > 0) {
+    const targetTurn = Math.min(Math.max(msgIndex - 1, 0), state.timeline.length - 1);
+    await goToTurn(targetTurn);
+    return;
+  }
+
+  if (state.timeline.length > 0) {
+    await goToTurn(state.timeline.length - 1);
+  }
 }
 
 function renderContextDiff() {

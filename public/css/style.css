@@ -611,6 +611,17 @@ body {
   align-items: flex-start;
 }
 
+.finding-card.jumpable {
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s;
+}
+
+.finding-card.jumpable:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+  transform: translateY(-1px);
+}
+
 .finding-icon {
   flex-shrink: 0;
   width: 24px;
@@ -676,6 +687,11 @@ body {
 .finding-chip.usage {
   background: var(--orange-bg);
   color: var(--orange);
+}
+
+.finding-chip.jump {
+  background: rgba(168,85,247,0.12);
+  color: var(--purple);
 }
 
 .finding-details {
