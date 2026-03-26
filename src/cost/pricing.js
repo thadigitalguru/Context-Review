@@ -52,15 +52,22 @@ function getDefaultPricing() {
 
 function calculateCost(inputTokens, outputTokens, model, cacheTokens) {
   const pricing = findPricing(model);
-  const inputCost = (inputTokens / 1_000_000) * pricing.input;
+  const cacheReadTokens = cacheTokens?.read || 0;
+  const cacheCreationTokens = cacheTokens?.creation || 0;
+  const standardInputTokens = Math.max(inputTokens - cacheReadTokens - cacheCreationTokens, 0);
+
+  const standardInputCost = (standardInputTokens / 1_000_000) * pricing.input;
+  const cacheReadRate = pricing.cacheRead || pricing.input;
+  const cacheWriteRate = pricing.cacheWrite || pricing.input;
+  const cacheReadCost = (cacheReadTokens / 1_000_000) * cacheReadRate;
+  const cacheWriteCost = (cacheCreationTokens / 1_000_000) * cacheWriteRate;
+  const inputCost = standardInputCost + cacheReadCost + cacheWriteCost;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
 
   let cacheSavings = 0;
-  if (cacheTokens && pricing.cacheRead) {
-    const cacheReadTokens = cacheTokens.read || 0;
+  if (cacheReadTokens > 0 && pricing.cacheRead) {
     const fullPriceCost = (cacheReadTokens / 1_000_000) * pricing.input;
-    const discountedCost = (cacheReadTokens / 1_000_000) * pricing.cacheRead;
-    cacheSavings = fullPriceCost - discountedCost;
+    cacheSavings = fullPriceCost - cacheReadCost;
   }
 
   return {
@@ -68,6 +75,11 @@ function calculateCost(inputTokens, outputTokens, model, cacheTokens) {
     outputCost: Math.round(outputCost * 1_000_000) / 1_000_000,
     totalCost: Math.round((inputCost + outputCost) * 1_000_000) / 1_000_000,
     cacheSavings: Math.round(cacheSavings * 1_000_000) / 1_000_000,
+    cacheReadCost: Math.round(cacheReadCost * 1_000_000) / 1_000_000,
+    cacheWriteCost: Math.round(cacheWriteCost * 1_000_000) / 1_000_000,
+    standardInputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
     pricing,
     model,
   };

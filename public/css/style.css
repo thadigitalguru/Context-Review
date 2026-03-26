@@ -586,6 +586,11 @@ body {
   transition: all 0.1s;
 }
 
+.findings-tag-count {
+  font-family: 'JetBrains Mono', monospace;
+  margin-left: 4px;
+}
+
 .findings-tag.active { border-color: currentColor; }
 
 .findings-tag.green { background: var(--green-bg); color: var(--green); }
@@ -715,6 +720,9 @@ body {
 .msg-role.assistant { background: rgba(249,115,22,0.15); color: var(--cat-assistant); }
 .msg-role.system { background: rgba(99,102,241,0.15); color: var(--cat-system); }
 .msg-role.tool { background: rgba(16,185,129,0.15); color: var(--cat-results); }
+.msg-role.provider-anthropic { background: rgba(232,168,85,0.15); color: #e8a855; }
+.msg-role.provider-openai { background: rgba(255,107,157,0.15); color: var(--pink); }
+.msg-role.provider-google { background: rgba(0,196,140,0.15); color: var(--green); }
 
 .msg-preview {
   flex: 1;

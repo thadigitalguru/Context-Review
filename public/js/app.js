@@ -395,10 +395,9 @@ function renderFindingsSection() {
     </div>
     <div class="findings-tags">
       ${Object.entries(tagCounts).map(([cat, count]) => {
-        const score = tagScores[cat] || 100;
         const c = tagColors[cat] || 'blue';
         return `<div class="findings-tag ${c} ${state.findingFilter === cat ? 'active' : ''}" onclick="toggleFindingFilter('${cat}')">
-          ${cat.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} ${score}
+          ${cat.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} <span class="findings-tag-count">${count}</span>
         </div>`;
       }).join('')}
     </div>
@@ -589,7 +588,7 @@ function renderMessages(area) {
       const miniBar = cats.map(x => `<div style="background:${CAT_COLORS[x.key]?.color || '#666'};width:${x.val}%;height:100%"></div>`).join('');
 
       return `<div class="message-item" onclick="showCaptureDetail('${c.id}')">
-        <div class="msg-role ${c.provider}">${c.provider.slice(0, 3).toUpperCase()}</div>
+        <div class="msg-role provider-${c.provider}">${c.provider.slice(0, 3).toUpperCase()}</div>
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
             <span style="font-size:12px;font-weight:600">#${i + 1} ${c.model || 'unknown'}</span>

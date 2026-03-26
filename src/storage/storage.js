@@ -73,6 +73,9 @@ class SessionStorage {
     const session = this.sessions.get(sessionId);
     session.lastActivity = capture.timestamp;
     session.requestCount++;
+    if (breakdown && breakdown.model && breakdown.model !== 'unknown') {
+      session.model = breakdown.model;
+    }
     if (breakdown) {
       const reportedInput = breakdown.response_tokens?.input || 0;
       const effectiveInput = reportedInput > 0 ? reportedInput : breakdown.total_tokens;
@@ -131,6 +134,7 @@ class SessionStorage {
 
     for (const [id, session] of this.sessions) {
       if (session.provider === provider &&
+        sameAgent(session, agent) &&
         (now - session.lastActivity) < 30 * 60 * 1000) {
         return id;
       }
@@ -214,6 +218,12 @@ class SessionStorage {
       },
     };
   }
+}
+
+function sameAgent(session, agent) {
+  const sessionAgentIds = Object.keys(session.agents || {});
+  if (sessionAgentIds.length === 0) return agent.id === 'unknown';
+  return sessionAgentIds.includes(agent.id);
 }
 
 function computeContextDiff(prevBreakdown, currentBreakdown) {
