@@ -1,0 +1,75 @@
+{
+  "provider": "openai",
+  "timestamp": 1760000000100,
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "headers": {
+      "user-agent": "codex/1.0"
+    },
+    "body": {
+      "model": "gpt-4o",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are Codex. Make code changes."
+        },
+        {
+          "role": "user",
+          "content": "Add validation."
+        },
+        {
+          "role": "assistant",
+          "content": "I will update the handler.",
+          "tool_calls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "edit_file",
+                "arguments": "{\"path\":\"app.js\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call-1",
+          "content": "File edited successfully."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "edit_file",
+            "description": "Edit a file",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "model": "gpt-4o",
+      "usage": {
+        "prompt_tokens": 700,
+        "completion_tokens": 150,
+        "prompt_tokens_details": {
+          "cached_tokens": 120
+        }
+      }
+    }
+  },
+  "isStreaming": false
+}

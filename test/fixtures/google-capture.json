@@ -1,0 +1,81 @@
+{
+  "provider": "google",
+  "timestamp": 1760000000200,
+  "request": {
+    "method": "POST",
+    "path": "/v1beta/models/gemini:generateContent",
+    "headers": {
+      "user-agent": "gemini-cli/1.0"
+    },
+    "body": {
+      "model": "gemini-2.5-flash",
+      "systemInstruction": {
+        "parts": [
+          {
+            "text": "You are Gemini CLI."
+          }
+        ]
+      },
+      "tools": [
+        {
+          "functionDeclarations": [
+            {
+              "name": "search_code",
+              "description": "Search codebase"
+            }
+          ]
+        }
+      ],
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "text": "Search for TODO items."
+            }
+          ]
+        },
+        {
+          "role": "model",
+          "parts": [
+            {
+              "functionCall": {
+                "name": "search_code",
+                "args": {
+                  "pattern": "TODO"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "parts": [
+            {
+              "functionResponse": {
+                "name": "search_code",
+                "response": {
+                  "matches": [
+                    "TODO: add tests"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "usageMetadata": {
+        "promptTokenCount": 900,
+        "candidatesTokenCount": 130,
+        "cachedContentTokenCount": 0
+      }
+    }
+  },
+  "isStreaming": false
+}

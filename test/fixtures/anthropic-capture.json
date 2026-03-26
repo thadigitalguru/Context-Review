@@ -1,0 +1,89 @@
+{
+  "provider": "anthropic",
+  "timestamp": 1760000000000,
+  "request": {
+    "method": "POST",
+    "path": "/v1/messages",
+    "headers": {
+      "user-agent": "claude-code/1.0"
+    },
+    "body": {
+      "model": "claude-sonnet-4-20250514",
+      "system": "You are Claude Code. Help with code changes.",
+      "tools": [
+        {
+          "name": "Read",
+          "description": "Read a file",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "name": "Write",
+          "description": "Write a file",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": "Inspect the project."
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "I should inspect the files first."
+            },
+            {
+              "type": "tool_use",
+              "id": "tool-1",
+              "name": "Read",
+              "input": {
+                "path": "README.md"
+              }
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "tool-1",
+              "content": "<div>Project overview</div>"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "model": "claude-sonnet-4-20250514",
+      "usage": {
+        "input_tokens": 1000,
+        "output_tokens": 200
+      }
+    }
+  },
+  "isStreaming": false
+}
