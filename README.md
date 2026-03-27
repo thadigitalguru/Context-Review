@@ -1,6 +1,6 @@
 # Context Review
 
-**See what your AI sees.** Framework-agnostic LLM context window visualizer.
+**See what your AI sees.** Local-first LLM context intelligence proxy and dashboard.
 
 A local proxy that sits between your coding tools and LLM APIs to capture, analyze, and visualize what actually fills the context window. No code changes needed — just set the API base URL.
 
@@ -15,8 +15,10 @@ Context Review shows you exactly what's in every request:
 - **Composition treemap** — see that 53% of your context is tool definitions you never use
 - **Context diff** — watch what grows and shrinks between turns
 - **Findings** — get flagged when tool results contain HTML markup, role confusion patterns, or when your context is growing too fast
+- **Simulation** — run what-if actions (trim results, remove tools, compact history) before changing prompts/tooling
 - **Cost tracking** — per-turn and per-session cost with cache-aware pricing
 - **Health scoring** — know when you're approaching overflow before it happens
+- **Team + CI workflows** — segment by project/user and expose machine-readable regression checks
 
 ## Quick Start
 
