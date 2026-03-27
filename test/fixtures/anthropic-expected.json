@@ -1,0 +1,82 @@
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-20250514",
+  "total_tokens": 135,
+  "token_counting": {
+    "method": "heuristic_chars",
+    "confidence": "low",
+    "source": "local_estimate"
+  },
+  "response_tokens": {
+    "input": 1000,
+    "output": 200,
+    "cacheCreation": 0,
+    "cacheRead": 0
+  },
+  "categories": {
+    "system_prompts": {
+      "tokens": 13,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "tool_definitions": {
+      "tokens": 76,
+      "count": 2,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "tool_calls": {
+      "tokens": 22,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "tool_results": {
+      "tokens": 8,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "assistant_text": {
+      "tokens": 0,
+      "count": 0,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "user_text": {
+      "tokens": 6,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "thinking_blocks": {
+      "tokens": 10,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "media": {
+      "tokens": 0,
+      "count": 0,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    }
+  },
+  "source_checks": {
+    "first_tool_call_source": {
+      "provider": "anthropic",
+      "role": "assistant",
+      "msgIndex": 2,
+      "partIndex": 1,
+      "path": "messages[1].content[1]"
+    },
+    "first_tool_result_source": {
+      "provider": "anthropic",
+      "role": "user",
+      "msgIndex": 3,
+      "partIndex": 0,
+      "path": "messages[2].content[0]"
+    }
+  }
+}

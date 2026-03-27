@@ -10,43 +10,57 @@ function loadFixture(name) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-test('parses anthropic captures into normalized breakdown categories', () => {
-  const capture = loadFixture('anthropic-capture.json');
-  const breakdown = parseRequest(capture);
+function loadExpected(name) {
+  return loadFixture(name);
+}
 
-  assert.equal(breakdown.provider, 'anthropic');
-  assert.equal(breakdown.agent.id, 'claude_code');
-  assert.equal(breakdown.tool_definitions.count, 2);
-  assert.equal(breakdown.tool_calls.count, 1);
-  assert.equal(breakdown.tool_results.count, 1);
-  assert.ok(breakdown.thinking_blocks.tokens > 0);
-  assert.equal(breakdown.tool_results.content[0].source.msgIndex, 3);
-  assert.equal(breakdown.token_counting.method, 'heuristic_chars');
-});
+function summarizeBreakdown(breakdown) {
+  return {
+    provider: breakdown.provider,
+    model: breakdown.model,
+    total_tokens: breakdown.total_tokens,
+    token_counting: breakdown.token_counting,
+    response_tokens: breakdown.response_tokens,
+    categories: {
+      system_prompts: summarizeCategory(breakdown.system_prompts, breakdown.system_prompts.content.length),
+      tool_definitions: summarizeCategory(breakdown.tool_definitions, breakdown.tool_definitions.count),
+      tool_calls: summarizeCategory(breakdown.tool_calls, breakdown.tool_calls.count),
+      tool_results: summarizeCategory(breakdown.tool_results, breakdown.tool_results.count),
+      assistant_text: summarizeCategory(breakdown.assistant_text, breakdown.assistant_text.content.length),
+      user_text: summarizeCategory(breakdown.user_text, breakdown.user_text.messageCount),
+      thinking_blocks: summarizeCategory(breakdown.thinking_blocks, breakdown.thinking_blocks.content.length),
+      media: summarizeCategory(breakdown.media, breakdown.media.count),
+    },
+    source_checks: {
+      first_tool_call_source: breakdown.tool_calls.content[0]?.source || null,
+      first_tool_result_source: breakdown.tool_results.content[0]?.source || null,
+    },
+  };
+}
 
-test('parses openai captures and preserves tool call/result sources', () => {
-  const capture = loadFixture('openai-capture.json');
-  const breakdown = parseRequest(capture);
+function summarizeCategory(category, count) {
+  return {
+    tokens: category.tokens,
+    count,
+    token_method: category.token_method,
+    token_confidence: category.token_confidence,
+  };
+}
 
-  assert.equal(breakdown.provider, 'openai');
-  assert.equal(breakdown.agent.id, 'codex');
-  assert.equal(breakdown.system_prompts.content.length, 1);
-  assert.equal(breakdown.tool_definitions.count, 1);
-  assert.equal(breakdown.tool_calls.count, 1);
-  assert.equal(breakdown.tool_results.count, 1);
-  assert.equal(breakdown.tool_calls.content[0].source.path, 'messages[2].tool_calls[0]');
-  assert.equal(breakdown.response_tokens.cacheRead, 120);
-});
+const CASES = [
+  { name: 'anthropic', capture: 'anthropic-capture.json', expected: 'anthropic-expected.json', expectedAgent: 'claude_code' },
+  { name: 'openai', capture: 'openai-capture.json', expected: 'openai-expected.json', expectedAgent: 'codex' },
+  { name: 'google', capture: 'google-capture.json', expected: 'google-expected.json', expectedAgent: 'gemini_cli' },
+];
 
-test('parses google captures into the shared category model', () => {
-  const capture = loadFixture('google-capture.json');
-  const breakdown = parseRequest(capture);
+for (const testCase of CASES) {
+  test(`parser fixture matches golden output for ${testCase.name}`, () => {
+    const capture = loadFixture(testCase.capture);
+    const expected = loadExpected(testCase.expected);
+    const breakdown = parseRequest(capture);
+    const actual = summarizeBreakdown(breakdown);
 
-  assert.equal(breakdown.provider, 'google');
-  assert.equal(breakdown.agent.id, 'gemini_cli');
-  assert.equal(breakdown.system_prompts.content.length, 1);
-  assert.equal(breakdown.tool_definitions.count, 1);
-  assert.equal(breakdown.tool_calls.count, 1);
-  assert.equal(breakdown.tool_results.count, 1);
-  assert.ok(breakdown.total_tokens > 0);
-});
+    assert.equal(breakdown.agent.id, testCase.expectedAgent);
+    assert.deepEqual(actual, expected);
+  });
+}
