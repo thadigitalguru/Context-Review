@@ -49,16 +49,39 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
       reason: 'not_checked',
       backupFile: null,
     };
+    this.telemetry = {
+      lastLoadAt: 0,
+      replayMs: 0,
+      lastCompactionAt: 0,
+      lastRecoveryAt: 0,
+      compactionsTotal: 0,
+      recoveriesTotal: 0,
+      degradedBootsTotal: 0,
+    };
   }
 
   load() {
+    const started = Date.now();
     const state = super.load();
     if (this.persistenceDisabled) return state;
-    if (!fs.existsSync(this.eventFile)) return state;
+    if (!fs.existsSync(this.eventFile)) {
+      this.telemetry.lastLoadAt = started;
+      this.telemetry.replayMs = Date.now() - started;
+      return state;
+    }
 
     try {
       const events = this.readEventsForLoad();
       this.lastIntegrityReport = events.integrityReport;
+      this.telemetry.lastLoadAt = Date.now();
+      this.telemetry.replayMs = this.telemetry.lastLoadAt - started;
+      if (events.integrityReport.recovered) {
+        this.telemetry.recoveriesTotal += 1;
+        this.telemetry.lastRecoveryAt = this.telemetry.lastLoadAt;
+      }
+      if (events.integrityReport.degraded) {
+        this.telemetry.degradedBootsTotal += 1;
+      }
       let current = normalizeState(state);
       for (const event of events.events) {
         current = applyEvent(current, event);
@@ -75,6 +98,9 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
         reason: `replay_failed:${e.message}`,
         backupFile: null,
       };
+      this.telemetry.lastLoadAt = Date.now();
+      this.telemetry.replayMs = this.telemetry.lastLoadAt - started;
+      this.telemetry.degradedBootsTotal += 1;
       return state;
     }
   }
@@ -158,16 +184,18 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
     const tempFile = `${this.eventFile}.tmp.${process.pid}.${now}`;
     fs.writeFileSync(tempFile, rewrittenLines.join('\n') + '\n');
     fs.renameSync(tempFile, this.eventFile);
+    this.telemetry.compactionsTotal += 1;
+    this.telemetry.lastCompactionAt = now;
 
     return result;
   }
 
   getEventLogStats() {
     if (this.persistenceDisabled) {
-      return { mode: 'event', persistenceDisabled: true, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport };
+      return { mode: 'event', persistenceDisabled: true, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport, telemetry: this.telemetry };
     }
     if (!fs.existsSync(this.eventFile)) {
-      return { mode: 'event', persistenceDisabled: false, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport };
+      return { mode: 'event', persistenceDisabled: false, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport, telemetry: this.telemetry };
     }
     const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
     return {
@@ -177,6 +205,7 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
       eventCount: lines.length,
       bytes: fs.statSync(this.eventFile).size,
       integrity: this.lastIntegrityReport,
+      telemetry: this.telemetry,
     };
   }
 

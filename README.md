@@ -200,6 +200,7 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/reports/session/:id/snapshot` JSON shareable summary
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
 - `GET /api/storage/status` storage mode and event-log metrics
+- `GET /api/health/storage` machine-readable storage health (`200` healthy, `503` degraded)
 - `POST /api/storage/compact` trigger event-log compaction (`admin` when auth is enabled)
 
 ### Recommended CI Sequence
@@ -222,6 +223,7 @@ This script validates:
 2. Capture ingest via `/api/simulate`.
 3. Forced cache refresh via `POST /api/analysis/refresh`.
 4. CI summary and check behavior end-to-end.
+5. Storage health endpoint returns healthy status.
 
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
@@ -241,6 +243,21 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
   - Event logs are validated line-by-line at boot.
   - On malformed JSON, partial tail writes, or invalid event shape, Context Review backs up the corrupt file and truncates to the last valid event.
   - Recovery status is exposed in `GET /api/storage/status` under `eventLog.integrity`.
+- Storage telemetry:
+  - `eventLog.telemetry.replayMs`, `eventLog.telemetry.lastLoadAt`
+  - `eventLog.telemetry.lastCompactionAt`, `eventLog.telemetry.lastRecoveryAt`
+  - `eventLog.telemetry.compactionsTotal`, `eventLog.telemetry.recoveriesTotal`, `eventLog.telemetry.degradedBootsTotal`
+
+### Storage Runbook
+
+1. Check health: `GET /api/health/storage`.
+2. Inspect status and metrics: `GET /api/storage/status`.
+3. Compact manually:
+   - `npm run compact:event-log -- --max-events 5000 --max-age-days 30`
+4. If degraded:
+   - locate recovery backup from `eventLog.integrity.backupFile`
+   - compare/replay backup offline
+   - restore backup only if required
 
 ## Key Design Decisions
 

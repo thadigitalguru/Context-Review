@@ -17,6 +17,7 @@ async function main() {
     await simulateTraffic();
     await refreshAnalysis();
     await validateSummaryAndCheck();
+    await validateStorageHealth();
     console.log('SMOKE OK: end-to-end CI flow succeeded');
   } catch (err) {
     console.error('SMOKE FAILED:', err.message);
@@ -169,6 +170,16 @@ async function validateSummaryAndCheck() {
   }
   if (!check.json || check.json.passed !== true) {
     throw new Error('ci check did not pass under permissive thresholds');
+  }
+}
+
+async function validateStorageHealth() {
+  const health = await get('/api/health/storage');
+  if (!health.ok) {
+    throw new Error(`storage health failed: ${health.status} ${health.text}`);
+  }
+  if (!health.json || health.json.ok !== true) {
+    throw new Error('storage health returned non-healthy payload');
   }
 }
 

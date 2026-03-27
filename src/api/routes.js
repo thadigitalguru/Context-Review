@@ -319,6 +319,23 @@ function createAPIRouter(storage, options = {}) {
     return res.json(storage.getStorageStatus());
   });
 
+  router.get('/health/storage', (req, res) => {
+    if (!storage || typeof storage.getStorageStatus !== 'function') {
+      return res.status(503).json({ ok: false, error: 'storage_status_unavailable' });
+    }
+    const status = storage.getStorageStatus();
+    const degraded = Boolean(status.eventLog && status.eventLog.integrity && status.eventLog.integrity.degraded);
+    if (degraded) {
+      return res.status(503).json({
+        ok: false,
+        status: 'degraded',
+        reason: status.eventLog.integrity.reason,
+        storage: status,
+      });
+    }
+    return res.json({ ok: true, status: 'healthy', storage: status });
+  });
+
   router.post('/storage/compact', requireRole('admin'), (req, res) => {
     if (!storage || typeof storage.compactEventLog !== 'function') {
       return res.status(503).json({ error: 'Storage compaction unavailable' });

@@ -354,6 +354,9 @@ test('event log compaction keeps replayed state identical while shrinking retain
   });
   assert.equal(compacted.compacted, true);
   assert.equal(compacted.stats.retainedEvents, 2);
+  const compactStatus = storage.getStorageStatus();
+  assert.equal(compactStatus.eventLog.telemetry.compactionsTotal, 1);
+  assert.ok(compactStatus.eventLog.telemetry.lastCompactionAt > 0);
 
   const linesAfter = fs.readFileSync(eventFile, 'utf8').trim().split('\n').length;
   assert.ok(linesAfter <= 3);
@@ -438,6 +441,8 @@ test('startup auto-recovers event log on malformed JSON and preserves last valid
   assert.equal(status.eventLog.integrity.reason, 'invalid_json_line');
   assert.ok(status.eventLog.integrity.backupFile);
   assert.ok(fs.existsSync(status.eventLog.integrity.backupFile));
+  assert.ok(status.eventLog.telemetry.recoveriesTotal >= 1);
+  assert.ok(status.eventLog.telemetry.lastRecoveryAt > 0);
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });

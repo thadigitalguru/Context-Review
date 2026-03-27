@@ -428,6 +428,13 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(statusRes.statusCode, 200);
   assert.equal(statusRes.body.adapterMode, 'event');
   assert.ok(statusRes.body.eventLog.eventCount >= 1);
+  assert.equal(typeof statusRes.body.eventLog.telemetry.compactionsTotal, 'number');
+  assert.equal(typeof statusRes.body.eventLog.telemetry.replayMs, 'number');
+
+  const healthRes = await requestApp(app, { url: '/api/health/storage' });
+  assert.equal(healthRes.statusCode, 200);
+  assert.equal(healthRes.body.ok, true);
+  assert.equal(healthRes.body.status, 'healthy');
 
   const dryRunRes = await requestApp(app, {
     method: 'POST',
@@ -444,6 +451,28 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(dryRunRes.body.reason, 'api-test');
 
   fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('api storage health returns 503 for degraded storage status', async () => {
+  const fakeStorage = {
+    getStorageStatus() {
+      return {
+        adapterMode: 'event',
+        eventLog: {
+          integrity: {
+            degraded: true,
+            reason: 'recovery_failed:test',
+          },
+        },
+      };
+    },
+  };
+  const app = createApp(fakeStorage);
+  const health = await requestApp(app, { url: '/api/health/storage' });
+  assert.equal(health.statusCode, 503);
+  assert.equal(health.body.ok, false);
+  assert.equal(health.body.status, 'degraded');
+  assert.equal(health.body.reason, 'recovery_failed:test');
 });
 
 test('auth middleware enforces credentials, roles, and tenant scoping', async () => {
