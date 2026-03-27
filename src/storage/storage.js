@@ -57,6 +57,7 @@ class SessionStorage {
       provider: capture.provider,
       model: breakdown ? breakdown.model : 'unknown',
       agent: breakdown ? breakdown.agent : { id: 'unknown', name: 'Unknown' },
+      tenant: context.tenant,
       project: context.project,
       user: context.user,
       isStreaming: capture.isStreaming,
@@ -75,6 +76,7 @@ class SessionStorage {
     const session = this.sessions.get(sessionId);
     session.lastActivity = capture.timestamp;
     session.requestCount++;
+    session.tenant = session.tenant || context.tenant;
     session.project = session.project || context.project;
     session.user = session.user || context.user;
     if (breakdown && breakdown.model && breakdown.model !== 'unknown') {
@@ -164,6 +166,7 @@ class SessionStorage {
       agents: {},
       turnBreakdowns: [],
       model: breakdown ? breakdown.model : 'unknown',
+      tenant: context.tenant,
       project: context.project,
       user: context.user,
     });
@@ -221,6 +224,7 @@ class SessionStorage {
           provider: c.provider,
           model: c.model,
           agent: c.agent,
+          tenant: c.tenant || session.tenant || 'default',
           project: c.project || session.project || 'default',
           user: c.user || session.user || 'anonymous',
           breakdown: c.breakdown,
@@ -235,6 +239,7 @@ class SessionStorage {
           requestCount: session.requestCount,
           totalInputTokens: session.totalInputTokens,
           totalOutputTokens: session.totalOutputTokens,
+          tenant: session.tenant || 'default',
           project: session.project || 'default',
           user: session.user || 'anonymous',
           agents: session.agents,
@@ -251,17 +256,20 @@ function sameAgent(session, agent) {
 }
 
 function sameContext(session, context) {
+  const sessionTenant = session.tenant || 'default';
   const sessionProject = session.project || 'default';
   const sessionUser = session.user || 'anonymous';
+  const incomingTenant = context.tenant || 'default';
   const incomingProject = context.project || 'default';
   const incomingUser = context.user || 'anonymous';
-  return sessionProject === incomingProject && sessionUser === incomingUser;
+  return sessionTenant === incomingTenant && sessionProject === incomingProject && sessionUser === incomingUser;
 }
 
 function extractContextIdentity(headers) {
+  const tenant = getHeader(headers, ['x-context-review-tenant', 'x-cr-tenant', 'x-tenant-id']) || 'default';
   const project = getHeader(headers, ['x-context-review-project', 'x-cr-project', 'x-project-id']) || 'default';
   const user = getHeader(headers, ['x-context-review-user', 'x-cr-user', 'x-user-id']) || 'anonymous';
-  return { project, user };
+  return { tenant, project, user };
 }
 
 function getHeader(headers, keys) {

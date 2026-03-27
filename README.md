@@ -70,6 +70,38 @@ For team/project segmentation, send these headers through your tool/proxy client
 
 Context Review will group and filter sessions by these identities.
 
+## Auth + RBAC (Team Mode)
+
+Enable API auth:
+
+```bash
+export CONTEXT_REVIEW_REQUIRE_AUTH=1
+```
+
+API key auth via JSON map:
+
+```bash
+export CONTEXT_REVIEW_API_KEYS='{
+  "viewer-token": {"tenant":"team-a","role":"viewer"},
+  "editor-token": {"tenant":"team-a","role":"editor","projects":["platform"]},
+  "admin-token": {"tenant":"team-a","role":"admin"}
+}'
+```
+
+JWT auth (HS256):
+
+```bash
+export CONTEXT_REVIEW_JWT_SECRET=your-shared-secret
+```
+
+Claims supported: `tenant` (or `tid`), `role`, `projects`, `users`, `sub`.
+
+Role behavior:
+
+- `viewer`: read-only endpoints
+- `editor`: viewer + write endpoints (`/api/simulate`, `/api/analysis/refresh`)
+- `admin`: editor + destructive endpoints (`DELETE /api/sessions`)
+
 ## What It Shows
 
 ### 8-Category Context Breakdown

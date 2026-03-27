@@ -95,14 +95,17 @@ function createApp(storage, options = {}) {
   return app;
 }
 
-function requestApp(app, { method = 'GET', url, body }) {
+function requestApp(app, { method = 'GET', url, body, headers = {} }) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url, 'http://localhost');
     const query = Object.fromEntries(parsed.searchParams.entries());
     const req = {
       method,
       url: `${parsed.pathname}${parsed.search}`,
-      headers: body !== undefined ? { 'content-type': 'application/json' } : {},
+      headers: {
+        ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...headers,
+      },
       body,
       _body: body !== undefined,
       query,
@@ -401,4 +404,104 @@ test('api summaries are cache-first with metadata when scheduler is available', 
   assert.equal(refreshRes.statusCode, 200);
   assert.deepEqual(stubScheduler.lastRefresh, [7, 14]);
   assert.equal(refreshRes.body.ok, true);
+});
+
+test('auth middleware enforces credentials, roles, and tenant scoping', async () => {
+  const storage = new SessionStorage();
+  const tenantACapture = createCaptureVariant({
+    timestamp: 1000,
+    userText: 'Tenant A request',
+    toolResult: '<div>a</div>',
+    headers: {
+      'x-context-review-tenant': 'tenant-a',
+      'x-context-review-project': 'alpha',
+      'x-context-review-user': 'alice',
+      'user-agent': 'codex/1.0',
+    },
+  });
+  const tenantBCapture = createCaptureVariant({
+    timestamp: 2000,
+    userText: 'Tenant B request',
+    toolResult: '<div>b</div>',
+    headers: {
+      'x-context-review-tenant': 'tenant-b',
+      'x-context-review-project': 'beta',
+      'x-context-review-user': 'bob',
+      'user-agent': 'codex/1.0',
+    },
+  });
+  storage.addCapture(tenantACapture, parseRequest(tenantACapture));
+  storage.addCapture(tenantBCapture, parseRequest(tenantBCapture));
+
+  const apiKeys = new Map([
+    ['viewer-key', { tenant: 'tenant-a', role: 'viewer' }],
+    ['editor-key', { tenant: 'tenant-a', role: 'editor' }],
+    ['admin-key', { tenant: 'tenant-a', role: 'admin' }],
+  ]);
+  const app = createApp(storage, {
+    auth: {
+      requireAuth: true,
+      apiKeys,
+    },
+  });
+
+  const unauth = await requestApp(app, { url: '/api/sessions' });
+  assert.equal(unauth.statusCode, 401);
+
+  const viewerSessions = await requestApp(app, {
+    url: '/api/sessions',
+    headers: { 'x-context-review-api-key': 'viewer-key' },
+  });
+  assert.equal(viewerSessions.statusCode, 200);
+  assert.equal(viewerSessions.body.length, 1);
+  assert.equal(viewerSessions.body[0].tenant, 'tenant-a');
+
+  const viewerWrite = await requestApp(app, {
+    method: 'POST',
+    url: '/api/simulate',
+    headers: { 'x-context-review-api-key': 'viewer-key' },
+    body: {
+      provider: 'openai',
+      request: {
+        headers: { 'user-agent': 'codex/1.0' },
+        body: { model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }] },
+        response: { usage: { prompt_tokens: 20, completion_tokens: 5 } },
+      },
+    },
+  });
+  assert.equal(viewerWrite.statusCode, 403);
+
+  const editorWrite = await requestApp(app, {
+    method: 'POST',
+    url: '/api/simulate',
+    headers: { 'x-context-review-api-key': 'editor-key' },
+    body: {
+      provider: 'openai',
+      request: {
+        headers: {
+          'user-agent': 'codex/1.0',
+          'x-context-review-tenant': 'tenant-b',
+          'x-context-review-project': 'alpha',
+          'x-context-review-user': 'alice',
+        },
+        body: { model: 'gpt-4o', messages: [{ role: 'user', content: 'editor write' }] },
+        response: { usage: { prompt_tokens: 30, completion_tokens: 8 } },
+      },
+    },
+  });
+  assert.equal(editorWrite.statusCode, 200);
+
+  const editorDelete = await requestApp(app, {
+    method: 'DELETE',
+    url: '/api/sessions',
+    headers: { 'x-context-review-api-key': 'editor-key' },
+  });
+  assert.equal(editorDelete.statusCode, 403);
+
+  const adminDelete = await requestApp(app, {
+    method: 'DELETE',
+    url: '/api/sessions',
+    headers: { 'x-context-review-api-key': 'admin-key' },
+  });
+  assert.equal(adminDelete.statusCode, 200);
 });
