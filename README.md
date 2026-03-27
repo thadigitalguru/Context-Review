@@ -57,7 +57,9 @@ export OPENAI_BASE_URL=http://localhost:8080
 export GOOGLE_API_BASE_URL=http://localhost:8080
 ```
 
-Use your tool normally. Every API call is captured and analyzed. Open `http://localhost:5000` (or your `DASHBOARD_PORT`) to see the dashboard.
+Use your tool normally. Every API call is captured and analyzed.
+- Landing page: `http://localhost:5000/`
+- Dashboard app: `http://localhost:5000/app` (or your `DASHBOARD_PORT`)
 
 ### Team Context Headers (Optional)
 
@@ -171,6 +173,23 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 1. `POST /api/analysis/refresh` for required windows (for example `7` and `14` days).
 2. `GET /api/ci/summary?days=7` to publish machine-readable metrics artifact.
 3. `POST /api/ci/check` with project thresholds to pass/fail pipeline on regressions.
+
+### End-to-End Smoke Process
+
+Run the production-like smoke flow locally:
+
+```bash
+npm run smoke:e2e
+```
+
+This script validates:
+
+1. Server startup on isolated ports.
+2. Capture ingest via `/api/simulate`.
+3. Forced cache refresh via `POST /api/analysis/refresh`.
+4. CI summary and check behavior end-to-end.
+
+GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 ## Phase 5 Architecture Notes
 

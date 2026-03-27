@@ -7,7 +7,8 @@
     "start": "node index.js",
     "dev": "node index.js",
     "test": "node --test",
-    "migrate:event-log": "node scripts/migrate-to-event-log.js"
+    "migrate:event-log": "node scripts/migrate-to-event-log.js",
+    "smoke:e2e": "node scripts/smoke-e2e.js"
   },
   "keywords": [
     "llm",
