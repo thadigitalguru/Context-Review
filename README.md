@@ -28,6 +28,9 @@ npm install
 
 # Start (dashboard on :5000, proxy on :8080)
 npm start
+
+# If those ports are busy, override them:
+DASHBOARD_PORT=5050 PROXY_PORT=8081 npm start
 ```
 
 Then point your LLM tool to the proxy:
@@ -43,7 +46,7 @@ export OPENAI_BASE_URL=http://localhost:8080
 export GOOGLE_API_BASE_URL=http://localhost:8080
 ```
 
-Use your tool normally. Every API call is captured and analyzed. Open `http://localhost:5000` to see the dashboard.
+Use your tool normally. Every API call is captured and analyzed. Open `http://localhost:5000` (or your `DASHBOARD_PORT`) to see the dashboard.
 
 ## What It Shows
 

@@ -20,9 +20,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const DASHBOARD_PORT = 5000;
-app.listen(DASHBOARD_PORT, '0.0.0.0', () => {
-  console.log(`Dashboard running on http://0.0.0.0:${DASHBOARD_PORT}`);
+const DASHBOARD_PORT = Number(process.env.DASHBOARD_PORT || process.env.PORT || 5000);
+const DASHBOARD_HOST = process.env.DASHBOARD_HOST || '0.0.0.0';
+app.listen(DASHBOARD_PORT, DASHBOARD_HOST, () => {
+  console.log(`Dashboard running on http://${DASHBOARD_HOST}:${DASHBOARD_PORT}`);
 });
 
 const proxyServer = createProxyServer((captureData) => {
@@ -32,25 +33,26 @@ const proxyServer = createProxyServer((captureData) => {
   console.log(`[Proxy] Session: ${result.sessionId}, Capture: ${result.captureId}, Tokens: ${breakdown ? breakdown.total_tokens : 0}`);
 });
 
-const PROXY_PORT = 8080;
+const PROXY_PORT = Number(process.env.PROXY_PORT || 8080);
+const PROXY_HOST = process.env.PROXY_HOST || 'localhost';
 proxyServer.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PROXY_PORT} is in use. Retrying in 2s...`);
     setTimeout(() => {
       proxyServer.close();
-      proxyServer.listen(PROXY_PORT, 'localhost');
+      proxyServer.listen(PROXY_PORT, PROXY_HOST);
     }, 2000);
   } else {
     console.error('Proxy server error:', err.message);
   }
 });
-proxyServer.listen(PROXY_PORT, 'localhost', () => {
-  console.log(`Proxy running on http://localhost:${PROXY_PORT}`);
+proxyServer.listen(PROXY_PORT, PROXY_HOST, () => {
+  console.log(`Proxy running on http://${PROXY_HOST}:${PROXY_PORT}`);
   console.log('');
   console.log('=== Quick Setup ===');
   console.log('Point your LLM tools to this proxy:');
-  console.log(`  Anthropic: ANTHROPIC_BASE_URL=http://localhost:${PROXY_PORT}`);
-  console.log(`  OpenAI:    OPENAI_BASE_URL=http://localhost:${PROXY_PORT}`);
-  console.log(`  Google:    GOOGLE_API_BASE_URL=http://localhost:${PROXY_PORT}`);
+  console.log(`  Anthropic: ANTHROPIC_BASE_URL=http://${PROXY_HOST}:${PROXY_PORT}`);
+  console.log(`  OpenAI:    OPENAI_BASE_URL=http://${PROXY_HOST}:${PROXY_PORT}`);
+  console.log(`  Google:    GOOGLE_API_BASE_URL=http://${PROXY_HOST}:${PROXY_PORT}`);
   console.log('');
 });

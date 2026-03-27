@@ -1,4 +1,4 @@
-const { getContextWindow } = require('../cost/pricing');
+const { findPricing, getContextWindow } = require('../cost/pricing');
 const { countTokens, stringifyValue } = require('../tokens/counter');
 
 function generateFindings(session, captures) {
@@ -28,6 +28,14 @@ function generateFindings(session, captures) {
         tokens: Math.round(breakdown.total_tokens - (contextWindow * 0.5)),
         confidence: 'moderate',
       },
+      recommendation: buildRecommendation({
+        summary: 'Compact history or start a fresh session to reduce overflow risk.',
+        action: { type: 'compact_history', params: { ratio: 0.3 } },
+        source: { type: 'session_tail', captureId },
+        model: breakdown.model,
+        tokens: Math.round(breakdown.total_tokens - (contextWindow * 0.5)),
+        confidence: 'moderate',
+      }),
     });
   } else if (usagePercent > 50) {
     const remainingTokens = contextWindow - breakdown.total_tokens;
@@ -47,6 +55,14 @@ function generateFindings(session, captures) {
         tokens: Math.max(0, Math.round(breakdown.total_tokens - (contextWindow * 0.5))),
         confidence: 'moderate',
       },
+      recommendation: buildRecommendation({
+        summary: 'Proactively compact history before context approaches the hard limit.',
+        action: { type: 'compact_history', params: { ratio: 0.2 } },
+        source: { type: 'session_tail', captureId },
+        model: breakdown.model,
+        tokens: Math.max(0, Math.round(breakdown.total_tokens - (contextWindow * 0.5))),
+        confidence: 'moderate',
+      }),
     });
   }
 
@@ -66,6 +82,14 @@ function generateFindings(session, captures) {
         msgIndex: r.msgIndex,
         source: r.source,
         estimatedSavings: estimateHtmlSavings(r),
+        recommendation: buildRecommendation({
+          summary: 'Trim HTML markup from this tool result before it enters history.',
+          action: { type: 'trim_tool_results', params: { msgIndex: r.msgIndex, maxTokens: 1000 } },
+          source: r.source,
+          model: breakdown.model,
+          tokens: estimateHtmlSavings(r).tokens,
+          confidence: 'moderate',
+        }),
       });
     }
 
@@ -86,6 +110,14 @@ function generateFindings(session, captures) {
           tokens: Math.round(r.tokens * 0.15),
           confidence: 'low',
         },
+        recommendation: buildRecommendation({
+          summary: 'Sanitize instruction-like language from tool output and keep only factual payload.',
+          action: { type: 'trim_tool_results', params: { msgIndex: r.msgIndex, maxTokens: Math.max(300, Math.round((r.tokens || 0) * 0.8)) } },
+          source: r.source,
+          model: breakdown.model,
+          tokens: Math.round(r.tokens * 0.15),
+          confidence: 'low',
+        }),
       });
     }
   }
@@ -105,6 +137,14 @@ function generateFindings(session, captures) {
         tokens: Math.round(breakdown.tool_definitions.tokens * 0.3),
         confidence: 'moderate',
       },
+      recommendation: buildRecommendation({
+        summary: 'Unload rarely used tools or slim schemas to cut prompt overhead.',
+        action: { type: 'remove_tools', params: { ratio: 0.3 } },
+        source: { type: 'category', category: 'tool_definitions', captureId },
+        model: breakdown.model,
+        tokens: Math.round(breakdown.tool_definitions.tokens * 0.3),
+        confidence: 'moderate',
+      }),
     });
   }
 
@@ -125,6 +165,14 @@ function generateFindings(session, captures) {
         tokens: totalUnusedTokens,
         confidence: 'high',
       },
+      recommendation: buildRecommendation({
+        summary: `Remove unused tools from this session payload: ${unusedToolNames.join(', ')}.`,
+        action: { type: 'remove_tools', params: { names: unusedToolNames } },
+        source: { type: 'tool_definitions', captureId: unusedTools[0].captureId || captureId },
+        model: breakdown.model,
+        tokens: totalUnusedTokens,
+        confidence: 'high',
+      }),
     });
   }
 
@@ -146,6 +194,14 @@ function generateFindings(session, captures) {
           tokens: Math.max(0, r.tokens - 1000),
           confidence: 'moderate',
         },
+        recommendation: buildRecommendation({
+          summary: 'Trim this oversized tool result to a bounded summary.',
+          action: { type: 'trim_tool_results', params: { msgIndex: r.msgIndex, maxTokens: 1000 } },
+          source: r.source,
+          model: breakdown.model,
+          tokens: Math.max(0, r.tokens - 1000),
+          confidence: 'moderate',
+        }),
       });
     }
   }
@@ -165,6 +221,14 @@ function generateFindings(session, captures) {
         tokens: Math.round(breakdown.thinking_blocks.tokens * 0.25),
         confidence: 'low',
       },
+      recommendation: buildRecommendation({
+        summary: 'Compact prior turns to keep historical reasoning blocks from ballooning context.',
+        action: { type: 'compact_history', params: { ratio: 0.2 } },
+        source: { type: 'category', category: 'thinking_blocks', captureId },
+        model: breakdown.model,
+        tokens: Math.round(breakdown.thinking_blocks.tokens * 0.25),
+        confidence: 'low',
+      }),
     });
   }
 
@@ -183,6 +247,14 @@ function generateFindings(session, captures) {
         tokens: Math.round(breakdown.system_prompts.tokens * 0.2),
         confidence: 'moderate',
       },
+      recommendation: buildRecommendation({
+        summary: 'Shorten and deduplicate system prompt instructions.',
+        action: { type: 'shorten_system_prompt', params: { ratio: 0.2 } },
+        source: { type: 'category', category: 'system_prompts', captureId },
+        model: breakdown.model,
+        tokens: Math.round(breakdown.system_prompts.tokens * 0.2),
+        confidence: 'moderate',
+      }),
     });
   }
 
@@ -211,6 +283,14 @@ function generateFindings(session, captures) {
             tokens: Math.round(avgGrowth),
             confidence: 'low',
           },
+          recommendation: buildRecommendation({
+            summary: 'Apply history compaction to slow sustained turn-to-turn growth.',
+            action: { type: 'compact_history', params: { ratio: 0.25 } },
+            source: { type: 'growth', captureId },
+            model: breakdown.model,
+            tokens: Math.round(avgGrowth),
+            confidence: 'low',
+          }),
         });
       }
     }
@@ -229,6 +309,14 @@ function generateFindings(session, captures) {
           tokens: lastTwo[0].breakdown.total - lastTwo[1].breakdown.total,
           confidence: 'high',
         },
+        recommendation: buildRecommendation({
+          summary: 'Compaction already occurred; continue monitoring growth before and after compaction events.',
+          action: { type: 'compact_history', params: { ratio: 0.15 } },
+          source: { type: 'compaction', captureId },
+          model: breakdown.model,
+          tokens: lastTwo[0].breakdown.total - lastTwo[1].breakdown.total,
+          confidence: 'high',
+        }),
       });
     }
   }
@@ -246,6 +334,14 @@ function generateFindings(session, captures) {
         tokens: Math.round(breakdown.media.tokens * 0.5),
         confidence: 'low',
       },
+      recommendation: buildRecommendation({
+        summary: 'Reduce media footprint by compressing or removing non-essential media.',
+        action: { type: 'compact_history', params: { ratio: 0.1 } },
+        source: { type: 'category', category: 'media', captureId },
+        model: breakdown.model,
+        tokens: Math.round(breakdown.media.tokens * 0.5),
+        confidence: 'low',
+      }),
     });
   }
 
@@ -301,6 +397,24 @@ function estimateHtmlSavings(result) {
     tokens: Math.max(0, before - after),
     confidence: 'moderate',
   };
+}
+
+function buildRecommendation({ summary, action, source, model, tokens, confidence }) {
+  return {
+    summary,
+    action,
+    source: source || null,
+    impact: {
+      tokens: Math.max(0, Math.round(tokens || 0)),
+      dollars: estimateDollarSavings(tokens || 0, model),
+      confidence: confidence || 'low',
+    },
+  };
+}
+
+function estimateDollarSavings(tokens, model) {
+  const inputRate = findPricing(model).input || 0;
+  return Math.round((((tokens || 0) / 1_000_000) * inputRate) * 1_000_000) / 1_000_000;
 }
 
 module.exports = { generateFindings };
