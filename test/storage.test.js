@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { migrateSnapshotToEventLog } = require('../src/storage/migrate');
+const { generateFindings } = require('../src/findings/findings');
 
 function createCapture({ provider, model, agentUserAgent, timestamp, body }) {
   return {
@@ -29,10 +30,18 @@ function createCapture({ provider, model, agentUserAgent, timestamp, body }) {
   };
 }
 
-test('session storage separates sessions by agent identity within the same provider window', () => {
-  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '1';
+function clearStorageModuleCache() {
   delete require.cache[require.resolve('../src/storage/storage')];
   delete require.cache[require.resolve('../src/parser/parser')];
+}
+
+function sortById(items) {
+  return [...items].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+test('session storage separates sessions by agent identity within the same provider window', () => {
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '1';
+  clearStorageModuleCache();
 
   const { SessionStorage } = require('../src/storage/storage');
   const { parseRequest } = require('../src/parser/parser');
@@ -60,8 +69,7 @@ test('session storage separates sessions by agent identity within the same provi
 
 test('session storage computes diffs across captures in the same session', () => {
   process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '1';
-  delete require.cache[require.resolve('../src/storage/storage')];
-  delete require.cache[require.resolve('../src/parser/parser')];
+  clearStorageModuleCache();
 
   const { SessionStorage } = require('../src/storage/storage');
   const { parseRequest } = require('../src/parser/parser');
@@ -102,8 +110,7 @@ test('event adapter replays captures across process restart', () => {
   process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
   process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
   process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
-  delete require.cache[require.resolve('../src/storage/storage')];
-  delete require.cache[require.resolve('../src/parser/parser')];
+  clearStorageModuleCache();
 
   const { SessionStorage } = require('../src/storage/storage');
   const { parseRequest } = require('../src/parser/parser');
@@ -137,8 +144,7 @@ test('snapshot can migrate into event-backed adapter without losing session data
   process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
   process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
   delete process.env.CONTEXT_REVIEW_STORAGE_ADAPTER;
-  delete require.cache[require.resolve('../src/storage/storage')];
-  delete require.cache[require.resolve('../src/parser/parser')];
+  clearStorageModuleCache();
 
   let { SessionStorage } = require('../src/storage/storage');
   const { parseRequest } = require('../src/parser/parser');
@@ -166,7 +172,7 @@ test('snapshot can migrate into event-backed adapter without losing session data
   assert.equal(migration.sessionCount, 1);
   assert.ok(migration.captureCount >= 2);
 
-  delete require.cache[require.resolve('../src/storage/storage')];
+  clearStorageModuleCache();
   ({ SessionStorage } = require('../src/storage/storage'));
   const eventStorage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
   assert.equal(eventStorage.getSessions().length, 1);
@@ -180,8 +186,7 @@ test('event adapter preserves clearAll across restart', () => {
   process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
   process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
   process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
-  delete require.cache[require.resolve('../src/storage/storage')];
-  delete require.cache[require.resolve('../src/parser/parser')];
+  clearStorageModuleCache();
 
   const { SessionStorage } = require('../src/storage/storage');
   const { parseRequest } = require('../src/parser/parser');
@@ -201,6 +206,116 @@ test('event adapter preserves clearAll across restart', () => {
 
   const reloaded = new SessionStorage();
   assert.equal(reloaded.getSessions().length, 0);
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('flat snapshot and event-backed storage return equivalent sessions captures and findings after migration', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-parity-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  delete process.env.CONTEXT_REVIEW_STORAGE_ADAPTER;
+  clearStorageModuleCache();
+
+  let { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+  const flatStorage = new SessionStorage({ adapterMode: 'flat', dataDir: tempDir, persistenceDisabled: false });
+
+  const c1 = createCapture({
+    provider: 'openai',
+    model: 'gpt-4o',
+    agentUserAgent: 'codex/1.0',
+    timestamp: 1000,
+    body: { model: 'gpt-4o', messages: [{ role: 'user', content: 'First prompt' }] },
+  });
+  const c2 = createCapture({
+    provider: 'openai',
+    model: 'gpt-4o',
+    agentUserAgent: 'codex/1.0',
+    timestamp: 2000,
+    body: { model: 'gpt-4o', messages: [{ role: 'user', content: 'Second prompt with more detail' }] },
+  });
+  const c3 = createCapture({
+    provider: 'anthropic',
+    model: 'claude-3-5-sonnet',
+    agentUserAgent: 'claude-code/0.1',
+    timestamp: 3000,
+    body: { model: 'claude-3-5-sonnet', messages: [{ role: 'user', content: 'Anthropic turn' }] },
+  });
+
+  const first = flatStorage.addCapture(c1, parseRequest(c1));
+  flatStorage.addCapture(c2, parseRequest(c2));
+  flatStorage.addCapture(c3, parseRequest(c3));
+
+  const flatSessions = sortById(flatStorage.getSessions());
+  const flatCaptures = sortById(flatStorage.captures);
+
+  const migration = migrateSnapshotToEventLog(tempDir, { backupExisting: false, verify: true });
+  assert.equal(migration.verified, true);
+  assert.equal(migration.verification.ok, true);
+
+  clearStorageModuleCache();
+  ({ SessionStorage } = require('../src/storage/storage'));
+  const eventStorage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+  const eventSessions = sortById(eventStorage.getSessions());
+  const eventCaptures = sortById(eventStorage.captures);
+
+  assert.deepEqual(eventSessions, flatSessions);
+  assert.deepEqual(eventCaptures, flatCaptures);
+  assert.deepEqual(eventStorage.getTimeline(first.sessionId), flatStorage.getTimeline(first.sessionId));
+
+  const targetSession = flatSessions.find((session) => session.provider === 'openai');
+  const flatFindings = generateFindings(targetSession, flatStorage.getSessionCaptures(targetSession.id));
+  const eventFindings = generateFindings(
+    eventStorage.getSession(targetSession.id),
+    eventStorage.getSessionCaptures(targetSession.id),
+  );
+  assert.deepEqual(eventFindings, flatFindings);
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('migration supports dry-run report and backup creation', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-migrate-flow-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  delete process.env.CONTEXT_REVIEW_STORAGE_ADAPTER;
+  clearStorageModuleCache();
+
+  const { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+
+  const storage = new SessionStorage({ adapterMode: 'flat', dataDir: tempDir, persistenceDisabled: false });
+  const capture = createCapture({
+    provider: 'openai',
+    model: 'gpt-4o',
+    agentUserAgent: 'codex/1.0',
+    timestamp: 1000,
+  });
+  storage.addCapture(capture, parseRequest(capture));
+
+  const eventFile = path.join(tempDir, 'events.ndjson');
+  fs.writeFileSync(eventFile, '{"type":"clear_all","timestamp":1}\n');
+
+  const dryRun = migrateSnapshotToEventLog(tempDir, { dryRun: true });
+  assert.equal(dryRun.dryRun, true);
+  assert.equal(dryRun.existingEventFile, true);
+  assert.equal(dryRun.wouldBackup, true);
+  assert.equal(dryRun.wouldWriteSeedEvent, true);
+  assert.equal(fs.readFileSync(eventFile, 'utf8'), '{"type":"clear_all","timestamp":1}\n');
+
+  const migrated = migrateSnapshotToEventLog(tempDir, { verify: true });
+  assert.equal(migrated.dryRun, false);
+  assert.equal(migrated.verified, true);
+  assert.equal(migrated.verification.ok, true);
+  assert.ok(migrated.backupFile);
+  assert.ok(fs.existsSync(migrated.backupFile));
+
+  const lines = fs.readFileSync(eventFile, 'utf8').trim().split('\n');
+  assert.equal(lines.length, 1);
+  const seed = JSON.parse(lines[0]);
+  assert.equal(seed.type, 'seed_state');
+  assert.ok(seed.state);
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
