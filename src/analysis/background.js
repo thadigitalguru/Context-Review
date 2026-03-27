@@ -25,21 +25,46 @@ class BackgroundAnalysisScheduler {
   }
 
   refresh() {
-    for (const days of this.daysList) {
+    this.refreshDays(this.daysList);
+  }
+
+  refreshDays(daysList) {
+    const now = Date.now();
+    const uniqueDays = [...new Set((Array.isArray(daysList) ? daysList : []).map((d) => Number(d)).filter((d) => Number.isFinite(d) && d > 0))];
+    const targets = uniqueDays.length > 0 ? uniqueDays : this.daysList;
+    for (const days of targets) {
       const report = buildReportsSummary(this.storage, days);
       const ci = buildCISummary(this.storage, days);
-      this.reportCache.set(days, { data: report, refreshedAt: Date.now() });
-      this.ciCache.set(days, { data: ci, refreshedAt: Date.now() });
+      this.reportCache.set(days, { data: report, refreshedAt: now, cacheAgeMs: 0 });
+      this.ciCache.set(days, { data: ci, refreshedAt: now, cacheAgeMs: 0 });
     }
-    this.lastRunAt = Date.now();
+    this.lastRunAt = now;
   }
 
   getReportSummary(days) {
-    return this.reportCache.get(days)?.data || null;
+    return this.getReportSummaryEntry(days)?.data || null;
   }
 
   getCISummary(days) {
-    return this.ciCache.get(days)?.data || null;
+    return this.getCISummaryEntry(days)?.data || null;
+  }
+
+  getReportSummaryEntry(days) {
+    const entry = this.reportCache.get(days) || null;
+    if (!entry) return null;
+    return {
+      ...entry,
+      cacheAgeMs: Math.max(0, Date.now() - entry.refreshedAt),
+    };
+  }
+
+  getCISummaryEntry(days) {
+    const entry = this.ciCache.get(days) || null;
+    if (!entry) return null;
+    return {
+      ...entry,
+      cacheAgeMs: Math.max(0, Date.now() - entry.refreshedAt),
+    };
   }
 }
 

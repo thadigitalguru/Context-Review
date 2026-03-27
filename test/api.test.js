@@ -88,10 +88,10 @@ function createCaptureVariant({ timestamp, userText, toolResult, headers }) {
   };
 }
 
-function createApp(storage) {
+function createApp(storage, options = {}) {
   const app = express();
   app.use(express.json());
-  app.use('/api', createAPIRouter(storage));
+  app.use('/api', createAPIRouter(storage, options));
   return app;
 }
 
@@ -323,6 +323,7 @@ test('api ci summary/check and snapshot endpoints are machine-readable', async (
   assert.equal(ciSummary.statusCode, 200);
   assert.ok(ciSummary.body.current);
   assert.ok(Object.prototype.hasOwnProperty.call(ciSummary.body.regression, 'avgInputTokensDeltaPct'));
+  assert.ok(ciSummary.body._cache);
 
   const ciCheck = await requestApp(app, {
     method: 'POST',
@@ -342,4 +343,62 @@ test('api ci summary/check and snapshot endpoints are machine-readable', async (
   assert.equal(snapshotMd.statusCode, 200);
   assert.equal(typeof snapshotMd.body, 'string');
   assert.ok(snapshotMd.body.includes('# Context Review Snapshot'));
+});
+
+test('api summaries are cache-first with metadata when scheduler is available', async () => {
+  const storage = new SessionStorage();
+  const stubScheduler = {
+    getReportSummaryEntry(days) {
+      return {
+        data: {
+          generatedAt: 1,
+          windowDays: days,
+          sessionCount: 0,
+          topWasteDrivers: [],
+          mostExpensiveSessions: [],
+          mostRepeatedSystemBlocks: [],
+          unusedTools: [],
+        },
+        refreshedAt: 12345,
+        cacheAgeMs: 50,
+      };
+    },
+    getCISummaryEntry(days) {
+      return {
+        data: {
+          generatedAt: 1,
+          windowDays: days,
+          current: { requestCount: 0 },
+          previous: { requestCount: 0 },
+          regression: { avgInputTokensDeltaPct: 0 },
+        },
+        refreshedAt: 23456,
+        cacheAgeMs: 40,
+      };
+    },
+    refreshDays(days) {
+      this.lastRefresh = days;
+    },
+    lastRunAt: 34567,
+  };
+  const app = createApp(storage, { analysisScheduler: stubScheduler });
+
+  const reportRes = await requestApp(app, { url: '/api/reports/summary?days=7' });
+  assert.equal(reportRes.statusCode, 200);
+  assert.equal(reportRes.body._cache.source, 'background_cache');
+  assert.equal(reportRes.body._cache.refreshedAt, 12345);
+
+  const ciRes = await requestApp(app, { url: '/api/ci/summary?days=7' });
+  assert.equal(ciRes.statusCode, 200);
+  assert.equal(ciRes.body._cache.source, 'background_cache');
+  assert.equal(ciRes.body._cache.refreshedAt, 23456);
+
+  const refreshRes = await requestApp(app, {
+    method: 'POST',
+    url: '/api/analysis/refresh',
+    body: { days: [7, 14] },
+  });
+  assert.equal(refreshRes.statusCode, 200);
+  assert.deepEqual(stubScheduler.lastRefresh, [7, 14]);
+  assert.equal(refreshRes.body.ok, true);
 });

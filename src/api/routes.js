@@ -197,9 +197,18 @@ function createAPIRouter(storage, options = {}) {
 
   router.get('/reports/summary', (req, res) => {
     const days = Number.isFinite(Number(req.query.days)) ? Math.max(1, Number(req.query.days)) : 7;
-    const cached = analysisScheduler && analysisScheduler.getReportSummary(days);
-    const summary = cached || buildReportsSummary(storage, days);
-    res.json(summary);
+    const cachedEntry = analysisScheduler && analysisScheduler.getReportSummaryEntry
+      ? analysisScheduler.getReportSummaryEntry(days)
+      : null;
+    const summary = cachedEntry?.data || buildReportsSummary(storage, days);
+    res.json({
+      ...summary,
+      _cache: {
+        source: cachedEntry ? 'background_cache' : 'request_path',
+        refreshedAt: cachedEntry?.refreshedAt || Date.now(),
+        cacheAgeMs: cachedEntry?.cacheAgeMs || 0,
+      },
+    });
   });
 
   router.get('/reports/session/:id/snapshot', (req, res) => {
@@ -218,9 +227,33 @@ function createAPIRouter(storage, options = {}) {
 
   router.get('/ci/summary', (req, res) => {
     const days = Number.isFinite(Number(req.query.days)) ? Math.max(1, Number(req.query.days)) : 7;
-    const cached = analysisScheduler && analysisScheduler.getCISummary(days);
-    const summary = cached || buildCISummary(storage, days);
-    res.json(summary);
+    const cachedEntry = analysisScheduler && analysisScheduler.getCISummaryEntry
+      ? analysisScheduler.getCISummaryEntry(days)
+      : null;
+    const summary = cachedEntry?.data || buildCISummary(storage, days);
+    res.json({
+      ...summary,
+      _cache: {
+        source: cachedEntry ? 'background_cache' : 'request_path',
+        refreshedAt: cachedEntry?.refreshedAt || Date.now(),
+        cacheAgeMs: cachedEntry?.cacheAgeMs || 0,
+      },
+    });
+  });
+
+  router.post('/analysis/refresh', (req, res) => {
+    if (!analysisScheduler || typeof analysisScheduler.refreshDays !== 'function') {
+      return res.status(503).json({ error: 'Background analysis scheduler is disabled' });
+    }
+
+    const inputDays = req.body && Array.isArray(req.body.days) ? req.body.days : [req.body?.days || 7];
+    const days = [...new Set(inputDays.map((d) => Number(d)).filter((d) => Number.isFinite(d) && d > 0))];
+    analysisScheduler.refreshDays(days);
+    return res.json({
+      ok: true,
+      refreshedDays: days,
+      refreshedAt: analysisScheduler.lastRunAt || Date.now(),
+    });
   });
 
   router.post('/ci/check', (req, res) => {

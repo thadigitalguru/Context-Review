@@ -159,10 +159,18 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 ## Team + CI APIs
 
 - `GET /api/sessions?project=<id>&user=<id>&agent=<name>&provider=<name>&model=<contains>&from=<ts|iso>&to=<ts|iso>`
-- `GET /api/ci/summary?days=7` machine-readable metrics for current vs previous windows
+- `GET /api/ci/summary?days=7` machine-readable metrics for current vs previous windows (`_cache` metadata included)
 - `POST /api/ci/check` regression gate endpoint (`422` on threshold failures)
+- `GET /api/reports/summary?days=7` cached report summary (`_cache` metadata included)
+- `POST /api/analysis/refresh` force refresh background analysis cache (supports `{"days":[7,14]}`)
 - `GET /api/reports/session/:id/snapshot` JSON shareable summary
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
+
+### Recommended CI Sequence
+
+1. `POST /api/analysis/refresh` for required windows (for example `7` and `14` days).
+2. `GET /api/ci/summary?days=7` to publish machine-readable metrics artifact.
+3. `POST /api/ci/check` with project thresholds to pass/fail pipeline on regressions.
 
 ## Phase 5 Architecture Notes
 
