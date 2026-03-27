@@ -334,14 +334,6 @@ function generateFindings(session, captures) {
         tokens: Math.round(breakdown.media.tokens * 0.5),
         confidence: 'low',
       },
-      recommendation: buildRecommendation({
-        summary: 'Reduce media footprint by compressing or removing non-essential media.',
-        action: { type: 'compact_history', params: { ratio: 0.1 } },
-        source: { type: 'category', category: 'media', captureId },
-        model: breakdown.model,
-        tokens: Math.round(breakdown.media.tokens * 0.5),
-        confidence: 'low',
-      }),
     });
   }
 

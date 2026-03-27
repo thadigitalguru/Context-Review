@@ -31,6 +31,9 @@ npm start
 
 # If those ports are busy, override them:
 DASHBOARD_PORT=5050 PROXY_PORT=8081 npm start
+
+# If proxy binds on all interfaces, keep client URL on localhost:
+PROXY_HOST=0.0.0.0 PROXY_ADVERTISE_HOST=localhost npm start
 ```
 
 Then point your LLM tool to the proxy:

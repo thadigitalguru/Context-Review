@@ -35,6 +35,7 @@ const proxyServer = createProxyServer((captureData) => {
 
 const PROXY_PORT = Number(process.env.PROXY_PORT || 8080);
 const PROXY_HOST = process.env.PROXY_HOST || 'localhost';
+const PROXY_ADVERTISE_HOST = process.env.PROXY_ADVERTISE_HOST || 'localhost';
 proxyServer.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PROXY_PORT} is in use. Retrying in 2s...`);
@@ -47,12 +48,13 @@ proxyServer.on('error', (err) => {
   }
 });
 proxyServer.listen(PROXY_PORT, PROXY_HOST, () => {
-  console.log(`Proxy running on http://${PROXY_HOST}:${PROXY_PORT}`);
+  console.log(`Proxy listening on ${PROXY_HOST}:${PROXY_PORT}`);
+  console.log(`Proxy client URL: http://${PROXY_ADVERTISE_HOST}:${PROXY_PORT}`);
   console.log('');
   console.log('=== Quick Setup ===');
   console.log('Point your LLM tools to this proxy:');
-  console.log(`  Anthropic: ANTHROPIC_BASE_URL=http://${PROXY_HOST}:${PROXY_PORT}`);
-  console.log(`  OpenAI:    OPENAI_BASE_URL=http://${PROXY_HOST}:${PROXY_PORT}`);
-  console.log(`  Google:    GOOGLE_API_BASE_URL=http://${PROXY_HOST}:${PROXY_PORT}`);
+  console.log(`  Anthropic: ANTHROPIC_BASE_URL=http://${PROXY_ADVERTISE_HOST}:${PROXY_PORT}`);
+  console.log(`  OpenAI:    OPENAI_BASE_URL=http://${PROXY_ADVERTISE_HOST}:${PROXY_PORT}`);
+  console.log(`  Google:    GOOGLE_API_BASE_URL=http://${PROXY_ADVERTISE_HOST}:${PROXY_PORT}`);
   console.log('');
 });

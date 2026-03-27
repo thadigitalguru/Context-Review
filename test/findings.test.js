@@ -49,3 +49,33 @@ test('findings include exact source references and savings estimates', () => {
   assert.equal(unusedToolFinding.recommendation.action.type, 'remove_tools');
   assert.ok(unusedToolFinding.recommendation.impact.dollars >= 0);
 });
+
+test('media findings do not include simulation recommendations', () => {
+  const breakdown = {
+    model: 'gpt-4o',
+    total_tokens: 1200,
+    tool_results: { content: [], count: 0, percentage: 0, tokens: 0 },
+    tool_definitions: { content: [], count: 0, percentage: 0, tokens: 0 },
+    tool_calls: { content: [], count: 0, percentage: 0, tokens: 0 },
+    thinking_blocks: { content: [], percentage: 0, tokens: 0 },
+    system_prompts: { content: [], percentage: 0, tokens: 0 },
+    assistant_text: { content: [], percentage: 0, tokens: 0 },
+    user_text: { content: [], messageCount: 1, percentage: 0, tokens: 0 },
+    media: { content: [{ source: { role: 'user', msgIndex: 1 }, tokens: 600 }], count: 1, percentage: 50, tokens: 600 },
+  };
+
+  const session = {
+    id: 'session-media',
+    provider: 'openai',
+    requestCount: 1,
+    totalInputTokens: 1200,
+    totalOutputTokens: 0,
+    agents: {},
+    turnBreakdowns: [],
+  };
+
+  const findings = generateFindings(session, [{ id: 'capture-media', breakdown }]);
+  const mediaFinding = findings.find((finding) => finding.category === 'media');
+  assert.ok(mediaFinding);
+  assert.equal(mediaFinding.recommendation, undefined);
+});
