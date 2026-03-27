@@ -8,6 +8,7 @@
     "dev": "node index.js",
     "test": "node --test",
     "migrate:event-log": "node scripts/migrate-to-event-log.js",
+    "compact:event-log": "node scripts/compact-event-log.js",
     "smoke:e2e": "node scripts/smoke-e2e.js"
   },
   "keywords": [

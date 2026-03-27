@@ -70,6 +70,105 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
       console.error('Failed to append storage event:', e.message);
     }
   }
+
+  compact(options = {}) {
+    if (this.persistenceDisabled) {
+      return { compacted: false, reason: 'persistence_disabled' };
+    }
+
+    if (!fs.existsSync(this.eventFile)) {
+      return {
+        compacted: false,
+        reason: 'event_log_missing',
+        eventFile: this.eventFile,
+      };
+    }
+
+    const maxEvents = toPositiveInt(options.maxEvents, 0);
+    const maxAgeMs = toPositiveInt(options.maxAgeMs, 0);
+    const now = Number.isFinite(options.now) ? Number(options.now) : Date.now();
+    const dryRun = options.dryRun === true;
+    const backupExisting = options.backupExisting !== false;
+    const reason = options.reason || 'manual';
+
+    const events = this.readEvents();
+    const retained = selectRetainedEvents(events, { maxEvents, maxAgeMs, now });
+    const retainedIndexes = new Set(retained.indexes);
+    const baseEvents = events.filter((_, idx) => !retainedIndexes.has(idx));
+    const baseState = applyEvents(baseEvents);
+
+    const seedEvent = {
+      type: 'seed_state',
+      timestamp: now,
+      state: baseState,
+      compaction: {
+        reason,
+        maxEvents,
+        maxAgeMs,
+        retainedEvents: retained.events.length,
+        totalEventsBefore: events.length,
+      },
+    };
+
+    const rewrittenLines = [JSON.stringify(seedEvent), ...retained.events.map((e) => JSON.stringify(e))];
+    const bytesBefore = fs.statSync(this.eventFile).size;
+
+    const result = {
+      compacted: !dryRun,
+      dryRun,
+      eventFile: this.eventFile,
+      backupFile: null,
+      reason,
+      limits: { maxEvents, maxAgeMs },
+      stats: {
+        totalEventsBefore: events.length,
+        retainedEvents: retained.events.length,
+        compactedAwayEvents: Math.max(0, events.length - retained.events.length),
+        linesAfter: rewrittenLines.length,
+        bytesBefore,
+        bytesAfter: Buffer.byteLength(rewrittenLines.join('\n') + '\n', 'utf8'),
+      },
+    };
+
+    if (dryRun) return result;
+
+    if (backupExisting) {
+      result.backupFile = `${this.eventFile}.bak.${now}`;
+      fs.copyFileSync(this.eventFile, result.backupFile);
+    }
+
+    const tempFile = `${this.eventFile}.tmp.${process.pid}.${now}`;
+    fs.writeFileSync(tempFile, rewrittenLines.join('\n') + '\n');
+    fs.renameSync(tempFile, this.eventFile);
+
+    return result;
+  }
+
+  getEventLogStats() {
+    if (this.persistenceDisabled) {
+      return { mode: 'event', persistenceDisabled: true, eventFile: this.eventFile, eventCount: 0, bytes: 0 };
+    }
+    if (!fs.existsSync(this.eventFile)) {
+      return { mode: 'event', persistenceDisabled: false, eventFile: this.eventFile, eventCount: 0, bytes: 0 };
+    }
+    const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
+    return {
+      mode: 'event',
+      persistenceDisabled: false,
+      eventFile: this.eventFile,
+      eventCount: lines.length,
+      bytes: fs.statSync(this.eventFile).size,
+    };
+  }
+
+  readEvents() {
+    const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
+    const events = [];
+    for (const line of lines) {
+      events.push(JSON.parse(line));
+    }
+    return events;
+  }
 }
 
 function createStorageAdapter(options = {}) {
@@ -126,6 +225,35 @@ function applyEvent(state, event) {
   return state;
 }
 
+function applyEvents(events) {
+  let current = { sessions: {}, captures: [] };
+  for (const event of events) {
+    current = applyEvent(current, event);
+  }
+  return normalizeState(current);
+}
+
+function selectRetainedEvents(events, options) {
+  const maxEvents = toPositiveInt(options.maxEvents, 0);
+  const maxAgeMs = toPositiveInt(options.maxAgeMs, 0);
+  const now = Number.isFinite(options.now) ? Number(options.now) : Date.now();
+  const minTs = maxAgeMs > 0 ? now - maxAgeMs : null;
+
+  const kept = [];
+  for (let idx = 0; idx < events.length; idx++) {
+    const event = events[idx];
+    const timestamp = Number(event && event.timestamp);
+    const oldByAge = minTs !== null && Number.isFinite(timestamp) && timestamp < minTs;
+    if (!oldByAge) kept.push({ idx, event });
+  }
+
+  const bounded = maxEvents > 0 ? kept.slice(-maxEvents) : kept;
+  return {
+    indexes: bounded.map((e) => e.idx),
+    events: bounded.map((e) => e.event),
+  };
+}
+
 function normalizeState(data) {
   return {
     sessions: data && typeof data.sessions === 'object' && data.sessions !== null ? data.sessions : {},
@@ -137,8 +265,15 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+function toPositiveInt(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
 module.exports = {
   FlatFileStorageAdapter,
   EventLogStorageAdapter,
   createStorageAdapter,
+  applyEvent,
 };

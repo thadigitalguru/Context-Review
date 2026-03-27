@@ -23,7 +23,24 @@ class SessionStorage {
     });
     this.adapterMode = created.mode;
     this.adapter = created.adapter;
+    this.eventRetentionMaxEvents = toPositiveInt(
+      options.eventRetentionMaxEvents !== undefined
+        ? options.eventRetentionMaxEvents
+        : process.env.CONTEXT_REVIEW_EVENT_RETENTION_MAX_EVENTS,
+      0,
+    );
+    this.eventRetentionMaxAgeMs = daysToMs(
+      options.eventRetentionMaxAgeDays !== undefined
+        ? options.eventRetentionMaxAgeDays
+        : process.env.CONTEXT_REVIEW_EVENT_RETENTION_MAX_AGE_DAYS,
+    );
+    this.compactOnStart = options.compactOnStart !== undefined
+      ? options.compactOnStart
+      : process.env.CONTEXT_REVIEW_EVENT_COMPACT_ON_START === '1';
     this.loadFromDisk();
+    if (this.compactOnStart) {
+      this.maybeCompactEventLog({ reason: 'startup' });
+    }
   }
 
   loadFromDisk() {
@@ -209,6 +226,57 @@ class SessionStorage {
     this.adapter.appendEvent(event);
   }
 
+  compactEventLog(options = {}) {
+    if (this.adapterMode !== 'event' || !this.adapter || typeof this.adapter.compact !== 'function') {
+      return {
+        compacted: false,
+        reason: 'event_adapter_not_enabled',
+        mode: this.adapterMode,
+      };
+    }
+
+    return this.adapter.compact({
+      maxEvents: options.maxEvents !== undefined ? options.maxEvents : this.eventRetentionMaxEvents,
+      maxAgeMs: options.maxAgeMs !== undefined ? options.maxAgeMs : this.eventRetentionMaxAgeMs,
+      dryRun: options.dryRun === true,
+      backupExisting: options.backupExisting !== false,
+      reason: options.reason || 'manual',
+    });
+  }
+
+  maybeCompactEventLog(options = {}) {
+    const maxEvents = options.maxEvents !== undefined ? options.maxEvents : this.eventRetentionMaxEvents;
+    const maxAgeMs = options.maxAgeMs !== undefined ? options.maxAgeMs : this.eventRetentionMaxAgeMs;
+    if (toPositiveInt(maxEvents, 0) <= 0 && toPositiveInt(maxAgeMs, 0) <= 0) {
+      return { compacted: false, reason: 'retention_limits_not_configured', mode: this.adapterMode };
+    }
+    return this.compactEventLog({
+      ...options,
+      maxEvents,
+      maxAgeMs,
+    });
+  }
+
+  getStorageStatus() {
+    const base = {
+      adapterMode: this.adapterMode,
+      dataDir: this.dataDir,
+      dataFile: this.dataFile,
+      eventFile: this.eventFile,
+      retention: {
+        maxEvents: this.eventRetentionMaxEvents,
+        maxAgeMs: this.eventRetentionMaxAgeMs,
+      },
+    };
+    if (this.adapterMode !== 'event' || !this.adapter || typeof this.adapter.getEventLogStats !== 'function') {
+      return base;
+    }
+    return {
+      ...base,
+      eventLog: this.adapter.getEventLogStats(),
+    };
+  }
+
   exportLHAR(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
@@ -320,3 +388,15 @@ function computeContextDiff(prevBreakdown, currentBreakdown) {
 }
 
 module.exports = { SessionStorage };
+
+function toPositiveInt(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function daysToMs(days) {
+  const parsed = Number(days);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.floor(parsed * 24 * 60 * 60 * 1000);
+}

@@ -199,6 +199,8 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `POST /api/analysis/refresh` force refresh background analysis cache (supports `{"days":[7,14]}`)
 - `GET /api/reports/session/:id/snapshot` JSON shareable summary
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
+- `GET /api/storage/status` storage mode and event-log metrics
+- `POST /api/storage/compact` trigger event-log compaction (`admin` when auth is enabled)
 
 ### Recommended CI Sequence
 
@@ -230,6 +232,11 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 - Optional event-log mode (`CONTEXT_REVIEW_EVENT_LOG=1`) appends capture events to `data/events.ndjson` while preserving local-first `sessions.json` mode.
 - Recommended adapter toggle: `CONTEXT_REVIEW_STORAGE_ADAPTER=event` (`flat` remains default).
 - Migration path: `npm run migrate:event-log` seeds `events.ndjson` from existing `sessions.json`.
+- Compaction path: `npm run compact:event-log -- --max-events 5000 --max-age-days 30`.
+- Retention controls:
+  - `CONTEXT_REVIEW_EVENT_RETENTION_MAX_EVENTS` keeps at most N recent events during compaction.
+  - `CONTEXT_REVIEW_EVENT_RETENTION_MAX_AGE_DAYS` keeps events newer than N days during compaction.
+  - `CONTEXT_REVIEW_EVENT_COMPACT_ON_START=1` compacts on startup using the configured limits.
 
 ## Key Design Decisions
 

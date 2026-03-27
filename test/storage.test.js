@@ -319,3 +319,90 @@ test('migration supports dry-run report and backup creation', () => {
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
+
+test('event log compaction keeps replayed state identical while shrinking retained events', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-compact-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
+  clearStorageModuleCache();
+
+  let { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+  const storage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+
+  for (let i = 0; i < 8; i++) {
+    const capture = createCapture({
+      provider: 'openai',
+      model: 'gpt-4o',
+      agentUserAgent: 'codex/1.0',
+      timestamp: 1_000 + i * 1_000,
+      body: { model: 'gpt-4o', messages: [{ role: 'user', content: `turn-${i}` }] },
+    });
+    storage.addCapture(capture, parseRequest(capture));
+  }
+
+  const sessionsBefore = sortById(storage.getSessions());
+  const capturesBefore = sortById(storage.captures);
+  const eventFile = path.join(tempDir, 'events.ndjson');
+  const linesBefore = fs.readFileSync(eventFile, 'utf8').trim().split('\n').length;
+
+  const compacted = storage.compactEventLog({
+    maxEvents: 2,
+    backupExisting: false,
+    reason: 'test',
+  });
+  assert.equal(compacted.compacted, true);
+  assert.equal(compacted.stats.retainedEvents, 2);
+
+  const linesAfter = fs.readFileSync(eventFile, 'utf8').trim().split('\n').length;
+  assert.ok(linesAfter <= 3);
+  assert.ok(linesAfter < linesBefore);
+
+  clearStorageModuleCache();
+  ({ SessionStorage } = require('../src/storage/storage'));
+  const reloaded = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+  assert.deepEqual(sortById(reloaded.getSessions()), sessionsBefore);
+  assert.deepEqual(sortById(reloaded.captures), capturesBefore);
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('event log compaction dry-run reports changes without mutating file', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-compact-dry-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
+  clearStorageModuleCache();
+
+  const { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+  const storage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+
+  for (let i = 0; i < 3; i++) {
+    const capture = createCapture({
+      provider: 'openai',
+      model: 'gpt-4o',
+      agentUserAgent: 'codex/1.0',
+      timestamp: 2_000 + i * 1_000,
+      body: { model: 'gpt-4o', messages: [{ role: 'user', content: `dry-${i}` }] },
+    });
+    storage.addCapture(capture, parseRequest(capture));
+  }
+
+  const eventFile = path.join(tempDir, 'events.ndjson');
+  const before = fs.readFileSync(eventFile, 'utf8');
+  const report = storage.compactEventLog({
+    maxEvents: 1,
+    dryRun: true,
+    backupExisting: false,
+    reason: 'test-dry',
+  });
+  const after = fs.readFileSync(eventFile, 'utf8');
+
+  assert.equal(report.dryRun, true);
+  assert.equal(report.compacted, false);
+  assert.equal(before, after);
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});

@@ -312,6 +312,30 @@ function createAPIRouter(storage, options = {}) {
     });
   });
 
+  router.get('/storage/status', (req, res) => {
+    if (!storage || typeof storage.getStorageStatus !== 'function') {
+      return res.status(503).json({ error: 'Storage status unavailable' });
+    }
+    return res.json(storage.getStorageStatus());
+  });
+
+  router.post('/storage/compact', requireRole('admin'), (req, res) => {
+    if (!storage || typeof storage.compactEventLog !== 'function') {
+      return res.status(503).json({ error: 'Storage compaction unavailable' });
+    }
+    const maxEvents = Number.isFinite(Number(req.body?.maxEvents)) ? Number(req.body.maxEvents) : undefined;
+    const maxAgeDays = Number.isFinite(Number(req.body?.maxAgeDays)) ? Number(req.body.maxAgeDays) : undefined;
+    const maxAgeMs = maxAgeDays !== undefined ? Math.max(0, Math.floor(maxAgeDays * 24 * 60 * 60 * 1000)) : undefined;
+    const result = storage.compactEventLog({
+      maxEvents,
+      maxAgeMs,
+      dryRun: req.body?.dryRun === true,
+      backupExisting: req.body?.backupExisting !== false,
+      reason: req.body?.reason || 'api',
+    });
+    return res.json(result);
+  });
+
   router.delete('/sessions', requireRole('admin'), (req, res) => {
     storage.clearAll();
     res.json({ success: true });

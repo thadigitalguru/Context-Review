@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const express = require('express');
 const { URL } = require('url');
 
@@ -404,6 +407,43 @@ test('api summaries are cache-first with metadata when scheduler is available', 
   assert.equal(refreshRes.statusCode, 200);
   assert.deepEqual(stubScheduler.lastRefresh, [7, 14]);
   assert.equal(refreshRes.body.ok, true);
+});
+
+test('api storage status and compaction endpoints expose event-log ops controls', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-api-compact-'));
+  const storage = new SessionStorage({
+    adapterMode: 'event',
+    dataDir: tempDir,
+    persistenceDisabled: false,
+  });
+  const capture = createCaptureVariant({
+    timestamp: 1000,
+    userText: 'Compaction API test',
+    toolResult: '<div>payload</div>',
+  });
+  storage.addCapture(capture, parseRequest(capture));
+
+  const app = createApp(storage);
+  const statusRes = await requestApp(app, { url: '/api/storage/status' });
+  assert.equal(statusRes.statusCode, 200);
+  assert.equal(statusRes.body.adapterMode, 'event');
+  assert.ok(statusRes.body.eventLog.eventCount >= 1);
+
+  const dryRunRes = await requestApp(app, {
+    method: 'POST',
+    url: '/api/storage/compact',
+    body: {
+      dryRun: true,
+      maxEvents: 1,
+      reason: 'api-test',
+    },
+  });
+  assert.equal(dryRunRes.statusCode, 200);
+  assert.equal(dryRunRes.body.dryRun, true);
+  assert.equal(dryRunRes.body.compacted, false);
+  assert.equal(dryRunRes.body.reason, 'api-test');
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 test('auth middleware enforces credentials, roles, and tenant scoping', async () => {
