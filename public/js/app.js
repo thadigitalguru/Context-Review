@@ -34,7 +34,15 @@ async function postApi(path, payload) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      const text = await r.text();
+      try {
+        const parsed = JSON.parse(text);
+        return { _error: parsed?.error || text || `Request failed (${r.status})` };
+      } catch {
+        return { _error: text || `Request failed (${r.status})` };
+      }
+    }
     const text = await r.text();
     try { return JSON.parse(text); } catch { return null; }
   } catch {
@@ -628,7 +636,9 @@ async function runFindingSimulation(index) {
     actions: [finding.recommendation.action],
   });
 
-  if (!result || !result.delta) {
+  if (result?._error) {
+    state.findingSimulations[key] = { loading: false, error: String(result._error) };
+  } else if (!result || !result.delta) {
     state.findingSimulations[key] = { loading: false, error: 'Simulation unavailable' };
   } else {
     state.findingSimulations[key] = { loading: false, delta: result.delta };
