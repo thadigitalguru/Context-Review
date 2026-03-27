@@ -36,6 +36,9 @@ DASHBOARD_PORT=5050 PROXY_PORT=8081 npm start
 
 # If proxy binds on all interfaces, keep client URL on localhost:
 PROXY_HOST=0.0.0.0 PROXY_ADVERTISE_HOST=localhost npm start
+
+# Optional: disable background analysis scheduler (Phase 5 architecture)
+CONTEXT_REVIEW_DISABLE_BACKGROUND_ANALYSIS=1 npm start
 ```
 
 Then point your LLM tool to the proxy:
@@ -136,6 +139,7 @@ src/
   proxy/proxy.js        Transparent proxy, auto-detects provider, SSE passthrough
   parser/parser.js      Parses requests into 8 categories, estimates tokens
   storage/storage.js    Session storage with disk persistence and context diffs
+  analysis/             Trend/report/CI analysis modules + background scheduler
   cost/pricing.js       Model pricing data with cache-aware cost calculation
   findings/findings.js  Optimization analysis and content-level detection
   api/routes.js         REST API endpoints for dashboard
@@ -156,6 +160,12 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `POST /api/ci/check` regression gate endpoint (`422` on threshold failures)
 - `GET /api/reports/session/:id/snapshot` JSON shareable summary
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
+
+## Phase 5 Architecture Notes
+
+- Analysis logic is split into `src/analysis/session-analysis.js` to keep API routing thin.
+- Background analysis caching runs in `src/analysis/background.js` and precomputes summary/CI windows.
+- Optional event-log mode (`CONTEXT_REVIEW_EVENT_LOG=1`) appends capture events to `data/events.ndjson` while preserving local-first `sessions.json` mode.
 
 ## Key Design Decisions
 

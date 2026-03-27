@@ -3,9 +3,13 @@ const path = require('path');
 const { createProxyServer } = require('./src/proxy/proxy');
 const { parseRequest } = require('./src/parser/parser');
 const { SessionStorage } = require('./src/storage/storage');
+const { BackgroundAnalysisScheduler } = require('./src/analysis/background');
 const { createAPIRouter } = require('./src/api/routes');
 
 const storage = new SessionStorage();
+const backgroundAnalysisEnabled = process.env.CONTEXT_REVIEW_DISABLE_BACKGROUND_ANALYSIS !== '1';
+const analysisScheduler = new BackgroundAnalysisScheduler(storage);
+if (backgroundAnalysisEnabled) analysisScheduler.start();
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -14,7 +18,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/api', createAPIRouter(storage));
+app.use('/api', createAPIRouter(storage, { analysisScheduler: backgroundAnalysisEnabled ? analysisScheduler : null }));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

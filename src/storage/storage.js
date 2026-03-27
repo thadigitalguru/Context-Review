@@ -9,8 +9,10 @@ class SessionStorage {
     this.sessions = new Map();
     this.captures = [];
     this.persistenceDisabled = process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE === '1';
+    this.eventLogEnabled = process.env.CONTEXT_REVIEW_EVENT_LOG === '1';
     this.dataDir = process.env.CONTEXT_REVIEW_DATA_DIR || path.join(__dirname, '../../data');
     this.dataFile = path.join(this.dataDir, 'sessions.json');
+    this.eventFile = path.join(this.dataDir, 'events.ndjson');
     this.loadFromDisk();
   }
 
@@ -131,6 +133,18 @@ class SessionStorage {
     }
 
     this.saveToDisk();
+    this.appendEvent({
+      type: 'capture_added',
+      timestamp: capture.timestamp,
+      sessionId,
+      captureId,
+      provider: capture.provider,
+      model: entry.model,
+      project: entry.project || session.project || 'default',
+      user: entry.user || session.user || 'anonymous',
+      totalTokens: breakdown?.total_tokens || 0,
+      responseTokens: breakdown?.response_tokens?.output || 0,
+    });
     return { captureId, sessionId };
   }
 
@@ -195,6 +209,16 @@ class SessionStorage {
     this.sessions.clear();
     this.captures = [];
     this.saveToDisk();
+  }
+
+  appendEvent(event) {
+    try {
+      if (!this.eventLogEnabled) return;
+      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
+      fs.appendFileSync(this.eventFile, JSON.stringify(event) + '\n');
+    } catch (e) {
+      console.error('Failed to append event log:', e.message);
+    }
   }
 
   exportLHAR(sessionId) {
