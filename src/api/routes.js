@@ -1,7 +1,8 @@
 const express = require('express');
-const { calculateCost, MODEL_PRICING } = require('../cost/pricing');
+const { calculateCost, MODEL_PRICING, getContextWindow } = require('../cost/pricing');
 const { generateFindings } = require('../findings/findings');
 const { parseRequest } = require('../parser/parser');
+const TREND_CATEGORIES = ['system_prompts', 'tool_definitions', 'tool_calls', 'tool_results', 'assistant_text', 'user_text', 'thinking_blocks', 'media'];
 
 function createAPIRouter(storage) {
   const router = express.Router();
@@ -176,6 +177,20 @@ function createAPIRouter(storage) {
     const captures = storage.getSessionCaptures(req.params.id);
     const findings = generateFindings(session, captures);
     res.json(findings);
+  });
+
+  router.get('/sessions/:id/trends', (req, res) => {
+    const session = storage.getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const captures = storage.getSessionCaptures(req.params.id);
+    const findings = generateFindings(session, captures);
+    res.json(buildSessionTrends(session, captures, findings));
+  });
+
+  router.get('/reports/summary', (req, res) => {
+    const days = Number.isFinite(Number(req.query.days)) ? Math.max(1, Number(req.query.days)) : 7;
+    const summary = buildReportsSummary(storage, days);
+    res.json(summary);
   });
 
   router.get('/sessions/:id/export', (req, res) => {
@@ -449,6 +464,251 @@ function roundCurrency(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function buildSessionTrends(session, captures, findings) {
+  const turns = session.turnBreakdowns || [];
+  const contextWindow = getContextWindow(session.model);
+  const points = turns.map((turn, idx) => {
+    const inputTokens = turn.breakdown.total || 0;
+    const outputTokens = captures[idx]?.breakdown?.response_tokens?.output || 0;
+    const cost = calculateCost(inputTokens, outputTokens, session.model);
+    return {
+      turn: idx + 1,
+      captureId: turn.captureId,
+      timestamp: turn.timestamp,
+      total_tokens: inputTokens,
+      cost: cost.totalCost,
+      categories: summarizeCategoriesFromTurn(turn.breakdown),
+    };
+  });
+
+  const deltas = [];
+  for (let i = 1; i < points.length; i++) deltas.push(points[i].total_tokens - points[i - 1].total_tokens);
+  const avgGrowth = deltas.length > 0 ? Math.round(deltas.reduce((sum, d) => sum + d, 0) / deltas.length) : 0;
+  const positiveGrowth = deltas.filter((d) => d > 0);
+  const trajectory = positiveGrowth.length > 0
+    ? Math.round(positiveGrowth.reduce((sum, d) => sum + d, 0) / positiveGrowth.length)
+    : 0;
+  const currentTokens = points.length > 0 ? points[points.length - 1].total_tokens : 0;
+  const remaining = Math.max(contextWindow - currentTokens, 0);
+  const turnsRemaining = trajectory > 0 ? Math.max(0, Math.floor(remaining / trajectory)) : null;
+
+  const avgTurnCost = points.length > 0
+    ? points.reduce((sum, p) => sum + p.cost, 0) / points.length
+    : 0;
+  const latestTurnCost = points.length > 0 ? points[points.length - 1].cost : 0;
+  const toolDefinitionPct = points.length > 0
+    ? Math.round((points.reduce((sum, p) => sum + (p.categories.tool_definitions || 0), 0) / Math.max(1, points.reduce((sum, p) => sum + p.total_tokens, 0))) * 100)
+    : 0;
+
+  const largeToolResults = captures.reduce((count, c) => {
+    const results = c.breakdown?.tool_results?.content || [];
+    return count + results.filter((r) => (r.tokens || 0) > 2000).length;
+  }, 0);
+
+  const alerts = [];
+  if (trajectory > 4000) {
+    alerts.push({
+      type: 'growth_trajectory',
+      severity: 'high',
+      message: `Context is growing by ~${trajectory} tokens on growth turns.`,
+    });
+  }
+  if (avgTurnCost > 0 && latestTurnCost > avgTurnCost * 1.7) {
+    alerts.push({
+      type: 'cost_spike',
+      severity: 'medium',
+      message: `Latest turn cost ($${latestTurnCost.toFixed(4)}) is significantly above session average.`,
+    });
+  }
+  if (largeToolResults >= 2) {
+    alerts.push({
+      type: 'large_tool_results',
+      severity: 'medium',
+      message: `${largeToolResults} oversized tool results detected across this session.`,
+    });
+  }
+  if (toolDefinitionPct >= 30) {
+    alerts.push({
+      type: 'tool_definition_overhead',
+      severity: 'medium',
+      message: `Tool definitions account for ${toolDefinitionPct}% of session context.`,
+    });
+  }
+
+  const recurringWaste = summarizeRecurringWaste(findings);
+  const toolUsage = summarizeToolUsage(captures);
+  const topContributors = summarizeTopContributors(points);
+
+  return {
+    sessionId: session.id,
+    model: session.model,
+    requestCount: session.requestCount,
+    contextWindow,
+    currentTokens,
+    points,
+    growth: {
+      avgDeltaTokens: avgGrowth,
+      positiveTrajectoryTokens: trajectory,
+      turnsAnalyzed: points.length,
+    },
+    forecast: {
+      turnsRemaining,
+      remainingTokens: remaining,
+      trajectoryTokensPerTurn: trajectory,
+    },
+    alerts,
+    recurringWaste,
+    toolUsage,
+    topContributors,
+  };
+}
+
+function summarizeCategoriesFromTurn(turnBreakdown) {
+  if (!turnBreakdown) return {};
+  const total = turnBreakdown.total || 1;
+  const output = {};
+  for (const key of TREND_CATEGORIES) {
+    const value = turnBreakdown[key] || 0;
+    output[key] = Math.round((value / total) * 100);
+  }
+  return output;
+}
+
+function summarizeRecurringWaste(findings) {
+  const byCategory = new Map();
+  for (const finding of findings || []) {
+    const key = finding.category || 'other';
+    const current = byCategory.get(key) || { category: key, count: 0, estimatedSavingsTokens: 0 };
+    current.count += 1;
+    current.estimatedSavingsTokens += finding.estimatedSavings?.tokens || 0;
+    byCategory.set(key, current);
+  }
+  return [...byCategory.values()]
+    .sort((a, b) => (b.estimatedSavingsTokens - a.estimatedSavingsTokens) || (b.count - a.count))
+    .slice(0, 5);
+}
+
+function summarizeToolUsage(captures) {
+  const calls = new Map();
+  const definitions = new Map();
+
+  for (const capture of captures || []) {
+    const toolDefs = capture.breakdown?.tool_definitions?.content || [];
+    for (const tool of toolDefs) {
+      if (!tool?.name) continue;
+      const current = definitions.get(tool.name) || { name: tool.name, definitionTokens: 0 };
+      current.definitionTokens += tool.tokens || 0;
+      definitions.set(tool.name, current);
+    }
+
+    const toolCalls = capture.breakdown?.tool_calls?.content || [];
+    for (const call of toolCalls) {
+      if (!call?.name) continue;
+      const current = calls.get(call.name) || { name: call.name, callCount: 0, callTokens: 0 };
+      current.callCount += 1;
+      current.callTokens += call.tokens || 0;
+      calls.set(call.name, current);
+    }
+  }
+
+  const names = new Set([...definitions.keys(), ...calls.keys()]);
+  return [...names].map((name) => {
+    const d = definitions.get(name) || { definitionTokens: 0 };
+    const c = calls.get(name) || { callCount: 0, callTokens: 0 };
+    return {
+      name,
+      callCount: c.callCount,
+      callTokens: c.callTokens,
+      definitionTokens: d.definitionTokens,
+      wasteScore: d.definitionTokens - c.callTokens,
+    };
+  }).sort((a, b) => (b.wasteScore - a.wasteScore) || (b.definitionTokens - a.definitionTokens)).slice(0, 10);
+}
+
+function summarizeTopContributors(points) {
+  const latest = points[points.length - 1];
+  if (!latest) return [];
+  return Object.entries(latest.categories || {})
+    .map(([category, percentage]) => ({ category, percentage }))
+    .sort((a, b) => b.percentage - a.percentage)
+    .slice(0, 3);
+}
+
+function buildReportsSummary(storage, days) {
+  const now = Date.now();
+  const cutoff = now - (days * 24 * 60 * 60 * 1000);
+  const sessions = storage.getSessions().filter((session) => session.lastActivity >= cutoff);
+
+  const expensiveSessions = [];
+  const categoryAggregate = new Map();
+  const unusedToolAggregate = new Map();
+  const repeatedSystemBlocks = new Map();
+
+  for (const session of sessions) {
+    const captures = storage.getSessionCaptures(session.id);
+    const cacheTokens = extractSessionCacheTokens(captures);
+    const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
+    expensiveSessions.push({
+      sessionId: session.id,
+      provider: session.provider,
+      model: session.model,
+      requestCount: session.requestCount,
+      totalCost: cost.totalCost,
+      totalInputTokens: session.totalInputTokens,
+      lastActivity: session.lastActivity,
+    });
+
+    const findings = generateFindings(session, captures);
+    for (const finding of findings) {
+      const key = finding.category || 'other';
+      const current = categoryAggregate.get(key) || { category: key, count: 0, estimatedSavingsTokens: 0 };
+      current.count += 1;
+      current.estimatedSavingsTokens += finding.estimatedSavings?.tokens || 0;
+      categoryAggregate.set(key, current);
+
+      if (Array.isArray(finding.tools)) {
+        for (const tool of finding.tools) {
+          const row = unusedToolAggregate.get(tool.name) || { name: tool.name, count: 0, tokens: 0 };
+          row.count += 1;
+          row.tokens += tool.tokens || 0;
+          unusedToolAggregate.set(tool.name, row);
+        }
+      }
+    }
+
+    for (const capture of captures) {
+      const prompts = capture.breakdown?.system_prompts?.content || [];
+      for (const p of prompts) {
+        const key = String(p.text || '').trim().slice(0, 120);
+        if (!key) continue;
+        const current = repeatedSystemBlocks.get(key) || { preview: key, count: 0, tokens: 0 };
+        current.count += 1;
+        current.tokens += p.tokens || 0;
+        repeatedSystemBlocks.set(key, current);
+      }
+    }
+  }
+
+  return {
+    generatedAt: now,
+    windowDays: days,
+    sessionCount: sessions.length,
+    topWasteDrivers: [...categoryAggregate.values()]
+      .sort((a, b) => (b.estimatedSavingsTokens - a.estimatedSavingsTokens) || (b.count - a.count))
+      .slice(0, 5),
+    mostExpensiveSessions: expensiveSessions
+      .sort((a, b) => b.totalCost - a.totalCost)
+      .slice(0, 5),
+    mostRepeatedSystemBlocks: [...repeatedSystemBlocks.values()]
+      .filter((block) => block.count > 1)
+      .sort((a, b) => (b.count - a.count) || (b.tokens - a.tokens))
+      .slice(0, 5),
+    unusedTools: [...unusedToolAggregate.values()]
+      .sort((a, b) => (b.tokens - a.tokens) || (b.count - a.count))
+      .slice(0, 8),
+  };
 }
 
 function extractSessionCacheTokens(captures) {

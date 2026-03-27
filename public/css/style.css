@@ -623,6 +623,100 @@ body {
   line-height: 1.5;
 }
 
+.workflow-section {
+  margin-bottom: 20px;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.workflow-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.workflow-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 10px;
+}
+
+.workflow-kpi-row {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.workflow-kpi-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.workflow-kpi-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.workflow-card-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.workflow-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.workflow-item:last-child {
+  border-bottom: none;
+}
+
+.workflow-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workflow-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  letter-spacing: 0.4px;
+}
+
+.workflow-pill.high {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.workflow-pill.medium {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
+
+.workflow-pill.low {
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+
 /* ===== FINDINGS ===== */
 .findings-header {
   display: flex;

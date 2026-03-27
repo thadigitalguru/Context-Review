@@ -8,8 +8,10 @@ let state = {
   captures: [],
   timeline: [],
   findings: [],
+  trends: null,
   composition: null,
   diffs: [],
+  reportSummary: null,
   pollTimer: null,
   findingFilter: null,
   diffFilter: null,
@@ -168,21 +170,27 @@ function healthLabel(score) {
 
 async function refresh() {
   state.sessions = await api('/sessions') || [];
-  const stats = await api('/stats');
+  const [stats, reportSummary] = await Promise.all([
+    api('/stats'),
+    api('/reports/summary?days=7'),
+  ]);
+  state.reportSummary = reportSummary;
 
   if (state.currentSessionId) {
-    const [session, captures, timeline, findings, diffs] = await Promise.all([
+    const [session, captures, timeline, findings, diffs, trends] = await Promise.all([
       api(`/sessions/${state.currentSessionId}`),
       api(`/sessions/${state.currentSessionId}/captures`),
       api(`/sessions/${state.currentSessionId}/timeline`),
       api(`/sessions/${state.currentSessionId}/findings`),
       api(`/sessions/${state.currentSessionId}/diffs`),
+      api(`/sessions/${state.currentSessionId}/trends`),
     ]);
     state.currentSession = session;
     state.captures = captures || [];
     state.timeline = timeline || [];
     state.findings = findings || [];
     state.diffs = diffs || [];
+    state.trends = trends || null;
     if (state.currentTurn === -1 && state.timeline.length > 0) state.currentTurn = state.timeline.length - 1;
     state.composition = await api(`/sessions/${state.currentSessionId}/composition?turn=${state.currentTurn}`);
   }
@@ -365,6 +373,7 @@ function renderOverview(area) {
   </div>`;
 
   const findingsHTML = renderFindingsSection();
+  const workflowHTML = renderPhase3Workflow();
   const diffHTML = renderContextDiff();
   const compHTML = renderComposition(comp);
   const countingHTML = renderTokenCountingSummary(comp?.token_counting);
@@ -376,7 +385,77 @@ function renderOverview(area) {
     <div style="font-size:11px;color:var(--text-muted)">View all &rarr;</div>
   </div>`;
 
-  area.innerHTML = statsHTML + findingsHTML + diffHTML + compHTML + countingHTML + messagesHTML;
+  area.innerHTML = statsHTML + findingsHTML + workflowHTML + diffHTML + compHTML + countingHTML + messagesHTML;
+}
+
+function renderPhase3Workflow() {
+  const trends = state.trends;
+  const report = state.reportSummary;
+  if (!trends && !report) return '';
+
+  const alerts = (trends?.alerts || []).slice(0, 3);
+  const recurring = (trends?.recurringWaste || []).slice(0, 4);
+  const topWaste = (report?.topWasteDrivers || []).slice(0, 4);
+  const expensive = (report?.mostExpensiveSessions || []).slice(0, 3);
+  const tools = (trends?.toolUsage || []).slice(0, 4);
+  const forecast = trends?.forecast || {};
+
+  return `<div class="workflow-section">
+    <div class="section-header">
+      <div class="section-title">WORKFLOW INSIGHTS<span class="turn-info">Phase 3 trends and forecasting</span></div>
+    </div>
+    <div class="workflow-grid">
+      <div class="workflow-card">
+        <div class="workflow-card-title">Forecast</div>
+        <div class="workflow-kpi-row">
+          <div>
+            <div class="workflow-kpi-value">${forecast.turnsRemaining === null ? 'N/A' : forecast.turnsRemaining}</div>
+            <div class="workflow-kpi-label">Turns Remaining</div>
+          </div>
+          <div>
+            <div class="workflow-kpi-value">${fmt(forecast.trajectoryTokensPerTurn || 0)}</div>
+            <div class="workflow-kpi-label">Growth / turn</div>
+          </div>
+        </div>
+        <div class="workflow-card-sub">${fmt(forecast.remainingTokens || 0)} tokens before model window limit</div>
+      </div>
+
+      <div class="workflow-card">
+        <div class="workflow-card-title">Active Alerts</div>
+        ${alerts.length === 0
+          ? '<div class="workflow-empty">No active alerts</div>'
+          : alerts.map((alert) => `<div class="workflow-item"><span class="workflow-pill ${alert.severity || 'low'}">${escapeHtml(alert.type)}</span><span>${escapeHtml(alert.message)}</span></div>`).join('')}
+      </div>
+
+      <div class="workflow-card">
+        <div class="workflow-card-title">Recurring Waste</div>
+        ${recurring.length === 0
+          ? '<div class="workflow-empty">No recurring patterns yet</div>'
+          : recurring.map((item) => `<div class="workflow-item"><span>${escapeHtml(item.category)}</span><span>${fmt(item.estimatedSavingsTokens)}t · ${item.count}x</span></div>`).join('')}
+      </div>
+
+      <div class="workflow-card">
+        <div class="workflow-card-title">Tool Waste Contribution</div>
+        ${tools.length === 0
+          ? '<div class="workflow-empty">No tool usage captured</div>'
+          : tools.map((tool) => `<div class="workflow-item"><span>${escapeHtml(tool.name)}</span><span>${fmt(tool.definitionTokens)} def · ${tool.callCount} calls</span></div>`).join('')}
+      </div>
+
+      <div class="workflow-card">
+        <div class="workflow-card-title">Top Waste Drivers (7d)</div>
+        ${topWaste.length === 0
+          ? '<div class="workflow-empty">No report data yet</div>'
+          : topWaste.map((driver) => `<div class="workflow-item"><span>${escapeHtml(driver.category)}</span><span>${fmt(driver.estimatedSavingsTokens)}t · ${driver.count}x</span></div>`).join('')}
+      </div>
+
+      <div class="workflow-card">
+        <div class="workflow-card-title">Most Expensive Sessions (7d)</div>
+        ${expensive.length === 0
+          ? '<div class="workflow-empty">No session cost data yet</div>'
+          : expensive.map((row) => `<div class="workflow-item"><span>${escapeHtml((row.model || 'unknown').slice(0, 22))}</span><span>${fmtCost(row.totalCost)}</span></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
 }
 
 function renderFindingsSection() {
@@ -977,6 +1056,7 @@ function selectSession(id) {
   state.currentTab = 'overview';
   state.findingFilter = null;
   state.diffFilter = null;
+  state.trends = null;
   state.findingSimulations = {};
   refresh();
 }

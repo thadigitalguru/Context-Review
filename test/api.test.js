@@ -53,6 +53,36 @@ function createCapture() {
   };
 }
 
+function createCaptureVariant({ timestamp, userText, toolResult }) {
+  const base = createCapture();
+  return {
+    ...base,
+    timestamp,
+    request: {
+      ...base.request,
+      body: {
+        ...base.request.body,
+        messages: [
+          { role: 'system', content: 'You are Codex.' },
+          { role: 'user', content: userText },
+          { role: 'tool', tool_call_id: 'call-1', content: toolResult },
+        ],
+      },
+    },
+    response: {
+      ...base.response,
+      body: {
+        ...base.response.body,
+        usage: {
+          prompt_tokens: Math.max(500, Math.round(userText.length / 2)),
+          completion_tokens: 120,
+          prompt_tokens_details: { cached_tokens: 50 },
+        },
+      },
+    },
+  };
+}
+
 function createApp(storage) {
   const app = express();
   app.use(express.json());
@@ -168,4 +198,61 @@ test('api simulate returns before/after deltas for recommendation actions', asyn
   assert.ok(simRes.body.delta.tokens_saved >= 0);
   assert.ok(Array.isArray(simRes.body.simulated.actions));
   assert.equal(simRes.body.simulated.actions.length, 2);
+});
+
+test('api trends exposes growth, forecast, alerts, and tool usage', async () => {
+  const storage = new SessionStorage();
+  const c1 = createCaptureVariant({
+    timestamp: 1000,
+    userText: 'Short request.',
+    toolResult: '<div>small html</div>',
+  });
+  const c2 = createCaptureVariant({
+    timestamp: 2000,
+    userText: `Longer request ${'A'.repeat(2400)}`,
+    toolResult: `<div>${'B'.repeat(3200)}</div>`,
+  });
+  const c3 = createCaptureVariant({
+    timestamp: 3000,
+    userText: `Longest request ${'C'.repeat(4200)}`,
+    toolResult: `<div>${'D'.repeat(4200)}</div>`,
+  });
+
+  const added = storage.addCapture(c1, parseRequest(c1));
+  storage.addCapture(c2, parseRequest(c2));
+  storage.addCapture(c3, parseRequest(c3));
+
+  const app = createApp(storage);
+  const trendsRes = await requestApp(app, { url: `/api/sessions/${added.sessionId}/trends` });
+
+  assert.equal(trendsRes.statusCode, 200);
+  assert.ok(Array.isArray(trendsRes.body.points));
+  assert.ok(trendsRes.body.points.length >= 3);
+  assert.ok(trendsRes.body.growth.avgDeltaTokens > 0);
+  assert.ok(Object.prototype.hasOwnProperty.call(trendsRes.body.forecast, 'turnsRemaining'));
+  assert.ok(Array.isArray(trendsRes.body.toolUsage));
+});
+
+test('api reports summary exposes top waste drivers and expensive sessions', async () => {
+  const storage = new SessionStorage();
+  const c1 = createCaptureVariant({
+    timestamp: Date.now() - 1000,
+    userText: `Report baseline ${'X'.repeat(1200)}`,
+    toolResult: `<div>${'Y'.repeat(2800)}</div>`,
+  });
+  const c2 = createCaptureVariant({
+    timestamp: Date.now(),
+    userText: `Report follow-up ${'Z'.repeat(1600)}`,
+    toolResult: `<div>${'K'.repeat(2400)}</div>`,
+  });
+  storage.addCapture(c1, parseRequest(c1));
+  storage.addCapture(c2, parseRequest(c2));
+
+  const app = createApp(storage);
+  const summaryRes = await requestApp(app, { url: '/api/reports/summary' });
+
+  assert.equal(summaryRes.statusCode, 200);
+  assert.ok(Array.isArray(summaryRes.body.topWasteDrivers));
+  assert.ok(Array.isArray(summaryRes.body.mostExpensiveSessions));
+  assert.ok(summaryRes.body.sessionCount >= 1);
 });
