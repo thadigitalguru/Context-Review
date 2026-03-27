@@ -28,3 +28,14 @@ jobs:
 
       - name: End-to-End Smoke
         run: npm run smoke:e2e
+
+      - name: Storage Health Gate
+        run: npm run ci:storage-health
+
+      - name: Upload Storage Status Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-status
+          path: artifacts/storage-status.json
+          if-no-files-found: warn

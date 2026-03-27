@@ -44,6 +44,39 @@ This sequence matters. Better charts without trusted data or actionable recommen
   - `public/css/style.css`
   - `public/js/app.js`
 
+## Current Execution Status (Updated 2026-03-27)
+
+Completed highlights:
+
+- Phase 1 reliability baseline:
+  - parser/provider coverage in automated tests
+  - fixture-driven parser golden regression tests (Anthropic/OpenAI/Google)
+  - normalized parser schema contract validation tests
+  - stream reconstruction hardening with malformed/partial SSE regression tests
+- Phase 2 recommendations:
+  - source-aware findings with savings estimates
+  - simulation actions and before/after delta APIs
+- Phase 3 workflows:
+  - trends, forecasting, alerts, and reusable report summaries
+- Phase 4 team/CI:
+  - project/user/agent filtering
+  - CI summary/check endpoints
+  - report snapshot export formats
+  - auth + RBAC + tenant scoping
+- Phase 5 architecture:
+  - optional event-log adapter mode
+  - migration flow with dry-run/backup/verification
+  - event-log compaction + retention controls
+  - startup integrity checks + auto-recovery
+  - storage observability (`/api/storage/status`, `/api/health/storage`) and CI health gate script
+
+Remaining focus areas:
+
+- parser fixture corpus expansion to additional real-world edge cases
+- explicit normalized schema versioning for backward compatibility guarantees
+- performance profiling for long event logs and large session sets
+- lightweight operator docs/playbooks for incident and rollback workflows
+
 ## Phase 1: Make The Data Trustworthy
 
 ### Goal
@@ -347,13 +380,13 @@ The architecture supports growth without losing the simplicity of the current MV
 
 ## Immediate Next Build Tasks
 
-If execution starts now, do these first:
+Current next queue:
 
-1. Add a test runner and fixture directory.
-2. Add parser fixtures for one Anthropic, one OpenAI, and one Google request.
-3. Introduce a token counting abstraction without changing the external API.
-4. Add breakdown metadata for count source and confidence.
-5. Refactor findings so each major warning points to an exact source object.
+1. Expand fixture corpus with streaming-heavy and multimodal edge cases for all providers.
+2. Add normalized schema versioning + migration guards for parser output compatibility.
+3. Add replay/analysis performance benchmarks and budget thresholds in CI.
+4. Add operator runbooks for recovery validation, rollback, and storage maintenance windows.
+5. Add cross-session comparison UX to surface recurring waste patterns across teams/projects.
 
 ## Definition Of Success
 

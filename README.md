@@ -225,6 +225,14 @@ This script validates:
 4. CI summary and check behavior end-to-end.
 5. Storage health endpoint returns healthy status.
 
+For CI storage governance:
+
+```bash
+npm run ci:storage-health
+```
+
+This command fails if `/api/health/storage` is degraded and writes `artifacts/storage-status.json` for pipeline artifacts.
+
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 ## Phase 5 Architecture Notes
