@@ -31,6 +31,7 @@ async function startServer() {
   const env = {
     ...process.env,
     DASHBOARD_PORT: String(DASHBOARD_PORT),
+    DASHBOARD_HOST: '127.0.0.1',
     PROXY_PORT: String(PROXY_PORT),
     PROXY_HOST: '127.0.0.1',
     PROXY_ADVERTISE_HOST: '127.0.0.1',

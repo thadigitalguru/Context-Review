@@ -499,6 +499,12 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(healthRes.body.ok, true);
   assert.equal(healthRes.body.status, 'healthy');
 
+  const opsRes = await requestApp(app, { url: '/api/ops/summary' });
+  assert.equal(opsRes.statusCode, 200);
+  assert.equal(typeof opsRes.body.generatedAt, 'number');
+  assert.equal(typeof opsRes.body.health.storage, 'string');
+  assert.ok(opsRes.body.storage);
+
   const dryRunRes = await requestApp(app, {
     method: 'POST',
     url: '/api/storage/compact',
@@ -512,6 +518,15 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(dryRunRes.body.dryRun, true);
   assert.equal(dryRunRes.body.compacted, false);
   assert.equal(dryRunRes.body.reason, 'api-test');
+
+  const maintenanceRes = await requestApp(app, {
+    method: 'POST',
+    url: '/api/storage/maintenance/run',
+    body: { dryRun: true, force: true },
+  });
+  assert.equal(maintenanceRes.statusCode, 200);
+  assert.equal(typeof maintenanceRes.body.reason, 'string');
+  assert.ok(Object.prototype.hasOwnProperty.call(maintenanceRes.body, 'compacted'));
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });

@@ -382,6 +382,32 @@ function createAPIRouter(storage, options = {}) {
     return res.json({ ok: true, status: 'healthy', storage: status });
   });
 
+  router.get('/ops/summary', (req, res) => {
+    if (!storage || typeof storage.getStorageStatus !== 'function') {
+      return res.status(503).json({ ok: false, error: 'storage_status_unavailable' });
+    }
+    const storageStatus = storage.getStorageStatus();
+    const degraded = Boolean(storageStatus.eventLog && storageStatus.eventLog.integrity && storageStatus.eventLog.integrity.degraded);
+    const includeCi = String(req.query.includeCi || '') === '1';
+    const ciWindowDays = Number.isFinite(Number(req.query.ciDays)) ? Math.max(1, Number(req.query.ciDays)) : 7;
+
+    let ci = null;
+    if (includeCi) {
+      const scopedStorage = createScopedStorageView(storage, req.auth);
+      ci = buildCISummary(scopedStorage, ciWindowDays);
+    }
+
+    return res.json({
+      ok: !degraded,
+      generatedAt: Date.now(),
+      health: {
+        storage: degraded ? 'degraded' : 'healthy',
+      },
+      storage: storageStatus,
+      ci,
+    });
+  });
+
   router.post('/storage/compact', requireRole('admin'), (req, res) => {
     if (!storage || typeof storage.compactEventLog !== 'function') {
       return res.status(503).json({ error: 'Storage compaction unavailable' });
@@ -395,6 +421,18 @@ function createAPIRouter(storage, options = {}) {
       dryRun: req.body?.dryRun === true,
       backupExisting: req.body?.backupExisting !== false,
       reason: req.body?.reason || 'api',
+    });
+    return res.json(result);
+  });
+
+  router.post('/storage/maintenance/run', requireRole('admin'), (req, res) => {
+    if (!storage || typeof storage.runMaintenanceCompaction !== 'function') {
+      return res.status(503).json({ error: 'Storage maintenance unavailable' });
+    }
+    const result = storage.runMaintenanceCompaction({
+      reason: req.body?.reason || 'manual_maintenance',
+      dryRun: req.body?.dryRun === true,
+      force: req.body?.force === true,
     });
     return res.json(result);
   });

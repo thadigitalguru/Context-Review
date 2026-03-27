@@ -202,7 +202,9 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
 - `GET /api/storage/status` storage mode and event-log metrics
 - `GET /api/health/storage` machine-readable storage health (`200` healthy, `503` degraded)
+- `GET /api/ops/summary` operator summary (storage health + benchmark snapshots, optional CI summary)
 - `POST /api/storage/compact` trigger event-log compaction (`admin` when auth is enabled)
+- `POST /api/storage/maintenance/run` run maintenance compaction policy (`admin` when auth is enabled)
 - `GET /api/sessions/:id/captures?limit=<n>&offset=<n>` paginated capture list mode
 
 ### Recommended CI Sequence
@@ -251,6 +253,14 @@ npm run ci:query-benchmark
 
 This command benchmarks session filtering and report summary generation and fails if thresholds are exceeded (`CI_QUERY_BENCH_MAX_FILTER_MS`, `CI_QUERY_BENCH_MAX_REPORT_MS`), writing `artifacts/query-benchmark.json`.
 
+For API response SLO governance:
+
+```bash
+npm run ci:api-slo
+```
+
+This command checks p95 latency for paged-lite sessions and report summary endpoints and fails on threshold regressions, writing `artifacts/api-slo.json`.
+
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 ## Phase 5 Architecture Notes
@@ -273,13 +283,20 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
   - `eventLog.telemetry.replayMs`, `eventLog.telemetry.lastLoadAt`
   - `eventLog.telemetry.lastCompactionAt`, `eventLog.telemetry.lastRecoveryAt`
   - `eventLog.telemetry.compactionsTotal`, `eventLog.telemetry.recoveriesTotal`, `eventLog.telemetry.degradedBootsTotal`
+- Maintenance controls:
+  - `CONTEXT_REVIEW_EVENT_COMPACT_INTERVAL_MINUTES` enables scheduled compaction.
+  - `CONTEXT_REVIEW_EVENT_COMPACT_MIN_IDLE_MS` skips scheduled compaction while traffic is active.
 
 ### Storage Runbook
 
 1. Check health: `GET /api/health/storage`.
-2. Inspect status and metrics: `GET /api/storage/status`.
+2. Inspect status and metrics: `GET /api/storage/status` and `GET /api/ops/summary`.
 3. Compact manually:
    - `npm run compact:event-log -- --max-events 5000 --max-age-days 30`
+4. Run automated checks:
+   - `npm run ops:check`
+5. Generate dry-run repair plan:
+   - `npm run ops:repair`
 4. If degraded:
    - locate recovery backup from `eventLog.integrity.backupFile`
    - compare/replay backup offline

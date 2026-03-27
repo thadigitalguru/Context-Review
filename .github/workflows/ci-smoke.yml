@@ -38,6 +38,9 @@ jobs:
       - name: Session Query Benchmark Gate
         run: npm run ci:query-benchmark
 
+      - name: API SLO Gate
+        run: npm run ci:api-slo
+
       - name: Upload Storage Status Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -60,4 +63,12 @@ jobs:
         with:
           name: query-benchmark
           path: artifacts/query-benchmark.json
+          if-no-files-found: warn
+
+      - name: Upload API SLO Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-slo
+          path: artifacts/api-slo.json
           if-no-files-found: warn

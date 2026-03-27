@@ -38,10 +38,27 @@ class SessionStorage {
     this.compactOnStart = options.compactOnStart !== undefined
       ? options.compactOnStart
       : process.env.CONTEXT_REVIEW_EVENT_COMPACT_ON_START === '1';
+    this.maintenanceIntervalMinutes = toPositiveInt(
+      options.maintenanceIntervalMinutes !== undefined
+        ? options.maintenanceIntervalMinutes
+        : process.env.CONTEXT_REVIEW_EVENT_COMPACT_INTERVAL_MINUTES,
+      0,
+    );
+    this.maintenanceMinIdleMs = toPositiveInt(
+      options.maintenanceMinIdleMs !== undefined
+        ? options.maintenanceMinIdleMs
+        : process.env.CONTEXT_REVIEW_EVENT_COMPACT_MIN_IDLE_MS,
+      60_000,
+    );
+    this.lastCaptureAt = 0;
+    this.lastMaintenanceRunAt = 0;
+    this.lastMaintenanceResult = null;
+    this.maintenanceTimer = null;
     this.loadFromDisk();
     if (this.compactOnStart) {
       this.maybeCompactEventLog({ reason: 'startup' });
     }
+    this.startMaintenanceScheduler();
   }
 
   loadFromDisk() {
@@ -90,6 +107,7 @@ class SessionStorage {
     };
 
     this.captures.push(entry);
+    this.lastCaptureAt = capture.timestamp || Date.now();
 
     const session = this.sessions.get(sessionId);
     session.lastActivity = capture.timestamp;
@@ -258,6 +276,40 @@ class SessionStorage {
     });
   }
 
+  runMaintenanceCompaction(options = {}) {
+    const now = Date.now();
+    this.lastMaintenanceRunAt = now;
+    const recentlyActive = this.lastCaptureAt > 0 && (now - this.lastCaptureAt) < this.maintenanceMinIdleMs;
+    if (recentlyActive && options.force !== true) {
+      const skipped = {
+        compacted: false,
+        reason: 'skipped_active_load',
+        lastCaptureAt: this.lastCaptureAt,
+        maintenanceMinIdleMs: this.maintenanceMinIdleMs,
+      };
+      this.lastMaintenanceResult = skipped;
+      return skipped;
+    }
+    const result = this.maybeCompactEventLog({
+      reason: options.reason || 'scheduled_maintenance',
+      dryRun: options.dryRun === true,
+      force: options.force === true,
+    });
+    this.lastMaintenanceResult = result;
+    return result;
+  }
+
+  startMaintenanceScheduler() {
+    if (this.maintenanceIntervalMinutes <= 0) return;
+    if (this.persistenceDisabled) return;
+    if (this.adapterMode !== 'event') return;
+    const intervalMs = this.maintenanceIntervalMinutes * 60 * 1000;
+    this.maintenanceTimer = setInterval(() => {
+      this.runMaintenanceCompaction({ reason: 'scheduled_maintenance' });
+    }, intervalMs);
+    if (this.maintenanceTimer.unref) this.maintenanceTimer.unref();
+  }
+
   getStorageStatus() {
     const benchmarkDir = process.env.CONTEXT_REVIEW_BENCHMARK_ARTIFACT_DIR || path.join(__dirname, '../../artifacts');
     const base = {
@@ -276,6 +328,12 @@ class SessionStorage {
           queryReportMaxMs: Number(process.env.CI_QUERY_BENCH_MAX_REPORT_MS || 3000),
         },
         latest: loadLatestBenchmarkArtifacts(benchmarkDir),
+      },
+      maintenance: {
+        intervalMinutes: this.maintenanceIntervalMinutes,
+        minIdleMs: this.maintenanceMinIdleMs,
+        lastRunAt: this.lastMaintenanceRunAt || null,
+        lastResult: this.lastMaintenanceResult,
       },
     };
     if (this.adapterMode !== 'event' || !this.adapter || typeof this.adapter.getEventLogStats !== 'function') {
