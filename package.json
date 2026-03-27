@@ -11,6 +11,7 @@
     "compact:event-log": "node scripts/compact-event-log.js",
     "ci:storage-health": "node scripts/ci-storage-health.js",
     "ci:storage-benchmark": "node scripts/ci-storage-benchmark.js",
+    "ci:query-benchmark": "node scripts/ci-query-benchmark.js",
     "smoke:e2e": "node scripts/smoke-e2e.js"
   },
   "keywords": [

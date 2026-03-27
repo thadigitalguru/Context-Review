@@ -197,12 +197,13 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
     if (!fs.existsSync(this.eventFile)) {
       return { mode: 'event', persistenceDisabled: false, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport, telemetry: this.telemetry };
     }
-    const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
+    const raw = fs.readFileSync(this.eventFile, 'utf8');
+    const lineCount = countNonEmptyLines(raw);
     return {
       mode: 'event',
       persistenceDisabled: false,
       eventFile: this.eventFile,
-      eventCount: lines.length,
+      eventCount: lineCount,
       bytes: fs.statSync(this.eventFile).size,
       integrity: this.lastIntegrityReport,
       telemetry: this.telemetry,
@@ -210,7 +211,7 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
   }
 
   readEvents() {
-    const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
+    const lines = collectNonEmptyLines(fs.readFileSync(this.eventFile, 'utf8'));
     const events = [];
     for (const line of lines) {
       events.push(JSON.parse(line));
@@ -355,8 +356,7 @@ function applyEvents(events) {
 
 function parseEventLog(raw) {
   const hasTrailingNewline = raw.endsWith('\n');
-  const lines = raw.split('\n');
-  if (hasTrailingNewline) lines.pop();
+  const lines = collectAllLines(raw);
   const events = [];
   const validLines = [];
 
@@ -413,6 +413,35 @@ function isValidStorageEvent(event) {
     return !!event.entry && typeof event.entry === 'object' && !!event.session && typeof event.session === 'object';
   }
   return false;
+}
+
+function collectAllLines(raw) {
+  const lines = [];
+  let start = 0;
+  while (start <= raw.length) {
+    const newlineIdx = raw.indexOf('\n', start);
+    if (newlineIdx === -1) {
+      lines.push(raw.slice(start));
+      break;
+    }
+    lines.push(raw.slice(start, newlineIdx));
+    start = newlineIdx + 1;
+    if (start === raw.length) break;
+  }
+  return lines;
+}
+
+function collectNonEmptyLines(raw) {
+  const lines = collectAllLines(raw);
+  return lines.filter((line) => line && line.trim());
+}
+
+function countNonEmptyLines(raw) {
+  let count = 0;
+  for (const line of collectAllLines(raw)) {
+    if (line && line.trim()) count += 1;
+  }
+  return count;
 }
 
 function selectRetainedEvents(events, options) {

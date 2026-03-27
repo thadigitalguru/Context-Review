@@ -311,6 +311,67 @@ test('api sessions supports team filters by project user and agent', async () =>
   assert.equal(byAgent.body.length, 1);
 });
 
+test('api sessions and captures support pagination with lightweight view', async () => {
+  const storage = new SessionStorage();
+  const t0 = Date.now() - 4000;
+  const main1 = createCaptureVariant({
+    timestamp: t0,
+    userText: 'Main one',
+    toolResult: '<div>m1</div>',
+    headers: { 'x-context-review-project': 'main', 'x-context-review-user': 'owner', 'user-agent': 'codex/1.0' },
+  });
+  const main2 = createCaptureVariant({
+    timestamp: t0 + 1000,
+    userText: 'Main two',
+    toolResult: '<div>m2</div>',
+    headers: { 'x-context-review-project': 'main', 'x-context-review-user': 'owner', 'user-agent': 'codex/1.0' },
+  });
+  const main3 = createCaptureVariant({
+    timestamp: t0 + 2000,
+    userText: 'Main three',
+    toolResult: '<div>m3</div>',
+    headers: { 'x-context-review-project': 'main', 'x-context-review-user': 'owner', 'user-agent': 'codex/1.0' },
+  });
+  const auxA = createCaptureVariant({
+    timestamp: t0 + 2500,
+    userText: 'Aux A',
+    toolResult: '<div>a</div>',
+    headers: { 'x-context-review-project': 'aux-a', 'x-context-review-user': 'owner', 'user-agent': 'aider/0.50' },
+  });
+  const auxB = createCaptureVariant({
+    timestamp: t0 + 3000,
+    userText: 'Aux B',
+    toolResult: '<div>b</div>',
+    headers: { 'x-context-review-project': 'aux-b', 'x-context-review-user': 'owner', 'user-agent': 'cursor/1.0' },
+  });
+
+  const first = storage.addCapture(main1, parseRequest(main1));
+  storage.addCapture(main2, parseRequest(main2));
+  storage.addCapture(main3, parseRequest(main3));
+  storage.addCapture(auxA, parseRequest(auxA));
+  storage.addCapture(auxB, parseRequest(auxB));
+  const app = createApp(storage);
+
+  const pagedLite = await requestApp(app, { url: '/api/sessions?limit=2&offset=0&view=lite' });
+  assert.equal(pagedLite.statusCode, 200);
+  assert.ok(Array.isArray(pagedLite.body.items));
+  assert.equal(pagedLite.body.items.length, 2);
+  assert.equal(typeof pagedLite.body.page.total, 'number');
+  assert.equal(pagedLite.body.page.offset, 0);
+  assert.equal(pagedLite.body.page.limit, 2);
+  assert.equal(pagedLite.body.items[0].turnBreakdowns, undefined);
+  assert.equal(pagedLite.body.items[0].cost, undefined);
+
+  const pagedCaptures = await requestApp(app, {
+    url: `/api/sessions/${first.sessionId}/captures?limit=1&offset=0`,
+  });
+  assert.equal(pagedCaptures.statusCode, 200);
+  assert.ok(Array.isArray(pagedCaptures.body.items));
+  assert.equal(pagedCaptures.body.items.length, 1);
+  assert.equal(pagedCaptures.body.page.total, 3);
+  assert.equal(pagedCaptures.body.page.hasMore, true);
+});
+
 test('api ci summary/check and snapshot endpoints are machine-readable', async () => {
   const storage = new SessionStorage();
   const projectCapture = createCaptureVariant({
@@ -430,6 +491,8 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.ok(statusRes.body.eventLog.eventCount >= 1);
   assert.equal(typeof statusRes.body.eventLog.telemetry.compactionsTotal, 'number');
   assert.equal(typeof statusRes.body.eventLog.telemetry.replayMs, 'number');
+  assert.equal(typeof statusRes.body.benchmarks.config.storageReplayMaxMs, 'number');
+  assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'storageReplay'));
 
   const healthRes = await requestApp(app, { url: '/api/health/storage' });
   assert.equal(healthRes.statusCode, 200);

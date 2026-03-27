@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { createStorageAdapter } = require('./adapters');
@@ -258,6 +259,7 @@ class SessionStorage {
   }
 
   getStorageStatus() {
+    const benchmarkDir = process.env.CONTEXT_REVIEW_BENCHMARK_ARTIFACT_DIR || path.join(__dirname, '../../artifacts');
     const base = {
       adapterMode: this.adapterMode,
       dataDir: this.dataDir,
@@ -266,6 +268,14 @@ class SessionStorage {
       retention: {
         maxEvents: this.eventRetentionMaxEvents,
         maxAgeMs: this.eventRetentionMaxAgeMs,
+      },
+      benchmarks: {
+        config: {
+          storageReplayMaxMs: Number(process.env.CI_STORAGE_BENCH_MAX_REPLAY_MS || 2000),
+          queryFilterMaxMs: Number(process.env.CI_QUERY_BENCH_MAX_FILTER_MS || 800),
+          queryReportMaxMs: Number(process.env.CI_QUERY_BENCH_MAX_REPORT_MS || 3000),
+        },
+        latest: loadLatestBenchmarkArtifacts(benchmarkDir),
       },
     };
     if (this.adapterMode !== 'event' || !this.adapter || typeof this.adapter.getEventLogStats !== 'function') {
@@ -399,4 +409,20 @@ function daysToMs(days) {
   const parsed = Number(days);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
   return Math.floor(parsed * 24 * 60 * 60 * 1000);
+}
+
+function loadLatestBenchmarkArtifacts(dir) {
+  return {
+    storageReplay: safeLoadJson(path.join(dir, 'storage-benchmark.json')),
+    queryPerformance: safeLoadJson(path.join(dir, 'query-benchmark.json')),
+  };
+}
+
+function safeLoadJson(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
 }

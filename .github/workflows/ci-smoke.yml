@@ -35,6 +35,9 @@ jobs:
       - name: Storage Replay Benchmark Gate
         run: npm run ci:storage-benchmark
 
+      - name: Session Query Benchmark Gate
+        run: npm run ci:query-benchmark
+
       - name: Upload Storage Status Artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,4 +52,12 @@ jobs:
         with:
           name: storage-benchmark
           path: artifacts/storage-benchmark.json
+          if-no-files-found: warn
+
+      - name: Upload Query Benchmark Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: query-benchmark
+          path: artifacts/query-benchmark.json
           if-no-files-found: warn

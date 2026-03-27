@@ -193,6 +193,7 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 ## Team + CI APIs
 
 - `GET /api/sessions?project=<id>&user=<id>&agent=<name>&provider=<name>&model=<contains>&from=<ts|iso>&to=<ts|iso>`
+- `GET /api/sessions?...&limit=<n>&offset=<n>&view=lite` paginated lightweight session list mode
 - `GET /api/ci/summary?days=7` machine-readable metrics for current vs previous windows (`_cache` metadata included)
 - `POST /api/ci/check` regression gate endpoint (`422` on threshold failures)
 - `GET /api/reports/summary?days=7` cached report summary (`_cache` metadata included)
@@ -202,6 +203,7 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/storage/status` storage mode and event-log metrics
 - `GET /api/health/storage` machine-readable storage health (`200` healthy, `503` degraded)
 - `POST /api/storage/compact` trigger event-log compaction (`admin` when auth is enabled)
+- `GET /api/sessions/:id/captures?limit=<n>&offset=<n>` paginated capture list mode
 
 ### Recommended CI Sequence
 
@@ -240,6 +242,14 @@ npm run ci:storage-benchmark
 ```
 
 This command benchmarks event-log replay and fails if `replayMs` exceeds the threshold (`CI_STORAGE_BENCH_MAX_REPLAY_MS`, default `2000`), writing `artifacts/storage-benchmark.json`.
+
+For CI query/list performance governance:
+
+```bash
+npm run ci:query-benchmark
+```
+
+This command benchmarks session filtering and report summary generation and fails if thresholds are exceeded (`CI_QUERY_BENCH_MAX_FILTER_MS`, `CI_QUERY_BENCH_MAX_REPORT_MS`), writing `artifacts/query-benchmark.json`.
 
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 

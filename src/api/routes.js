@@ -55,7 +55,27 @@ function createAPIRouter(storage, options = {}) {
   router.get('/sessions', (req, res) => {
     const scoped = scopeSessionsForAuth(storage.getSessions(), req.auth);
     const sessions = filterSessions(scoped, req.query);
-    const enriched = sessions.map((session) => {
+    const offset = Number.isFinite(Number(req.query.offset)) ? Math.max(0, Number(req.query.offset)) : 0;
+    const limit = Number.isFinite(Number(req.query.limit)) ? Math.max(1, Math.min(500, Number(req.query.limit))) : null;
+    const lite = String(req.query.view || '').toLowerCase() === 'lite';
+    const paged = limit !== null || req.query.offset !== undefined || String(req.query.paged || '') === '1';
+
+    const selected = limit !== null ? sessions.slice(offset, offset + limit) : sessions.slice(offset);
+    const enriched = selected.map((session) => {
+      if (lite) {
+        return {
+          id: session.id,
+          provider: session.provider,
+          model: session.model,
+          project: session.project || 'default',
+          user: session.user || 'anonymous',
+          tenant: session.tenant || 'default',
+          requestCount: session.requestCount,
+          totalInputTokens: session.totalInputTokens,
+          totalOutputTokens: session.totalOutputTokens,
+          lastActivity: session.lastActivity,
+        };
+      }
       const cacheTokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
       const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
       return {
@@ -64,7 +84,18 @@ function createAPIRouter(storage, options = {}) {
         turnBreakdowns: undefined,
       };
     });
-    res.json(enriched);
+
+    if (!paged) return res.json(enriched);
+    const effectiveLimit = limit !== null ? limit : enriched.length;
+    return res.json({
+      items: enriched,
+      page: {
+        total: sessions.length,
+        offset,
+        limit: effectiveLimit,
+        hasMore: offset + effectiveLimit < sessions.length,
+      },
+    });
   });
 
   router.get('/sessions/:id', (req, res) => {
@@ -88,8 +119,12 @@ function createAPIRouter(storage, options = {}) {
     const session = getScopedSession(storage, req, req.params.id);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
-    const captures = storage.getSessionCaptures(req.params.id);
-    res.json(captures.map((c) => ({
+    const allCaptures = storage.getSessionCaptures(req.params.id);
+    const offset = Number.isFinite(Number(req.query.offset)) ? Math.max(0, Number(req.query.offset)) : 0;
+    const limit = Number.isFinite(Number(req.query.limit)) ? Math.max(1, Math.min(1000, Number(req.query.limit))) : null;
+    const paged = limit !== null || req.query.offset !== undefined || String(req.query.paged || '') === '1';
+    const captures = limit !== null ? allCaptures.slice(offset, offset + limit) : allCaptures.slice(offset);
+    const items = captures.map((c) => ({
       id: c.id,
       timestamp: c.timestamp,
       provider: c.provider,
@@ -113,7 +148,18 @@ function createAPIRouter(storage, options = {}) {
       } : null,
       request: c.request,
       response: c.response,
-    })));
+    }));
+    if (!paged) return res.json(items);
+    const effectiveLimit = limit !== null ? limit : items.length;
+    return res.json({
+      items,
+      page: {
+        total: allCaptures.length,
+        offset,
+        limit: effectiveLimit,
+        hasMore: offset + effectiveLimit < allCaptures.length,
+      },
+    });
   });
 
   router.get('/sessions/:id/capture/:captureId', (req, res) => {
