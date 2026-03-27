@@ -406,3 +406,102 @@ test('event log compaction dry-run reports changes without mutating file', () =>
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
+
+test('startup auto-recovers event log on malformed JSON and preserves last valid state', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-recover-json-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
+  clearStorageModuleCache();
+
+  let { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+  const storage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+
+  const capture = createCapture({
+    provider: 'openai',
+    model: 'gpt-4o',
+    agentUserAgent: 'codex/1.0',
+    timestamp: 1000,
+  });
+  const added = storage.addCapture(capture, parseRequest(capture));
+  const eventFile = path.join(tempDir, 'events.ndjson');
+  fs.appendFileSync(eventFile, '{"type":"capture_added"');
+  fs.appendFileSync(eventFile, '\n{"type":"clear_all","timestamp":2000}\n');
+
+  clearStorageModuleCache();
+  ({ SessionStorage } = require('../src/storage/storage'));
+  const reloaded = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+  const status = reloaded.getStorageStatus();
+  assert.equal(reloaded.getSessionCaptures(added.sessionId).length, 1);
+  assert.equal(status.eventLog.integrity.recovered, true);
+  assert.equal(status.eventLog.integrity.reason, 'invalid_json_line');
+  assert.ok(status.eventLog.integrity.backupFile);
+  assert.ok(fs.existsSync(status.eventLog.integrity.backupFile));
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('startup auto-recovers when event log ends with a partial line', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-recover-partial-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
+  clearStorageModuleCache();
+
+  let { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+  const storage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+
+  const capture = createCapture({
+    provider: 'openai',
+    model: 'gpt-4o',
+    agentUserAgent: 'codex/1.0',
+    timestamp: 1000,
+  });
+  const added = storage.addCapture(capture, parseRequest(capture));
+  const eventFile = path.join(tempDir, 'events.ndjson');
+  fs.appendFileSync(eventFile, '{"type":"clear_all"');
+
+  clearStorageModuleCache();
+  ({ SessionStorage } = require('../src/storage/storage'));
+  const reloaded = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+  const status = reloaded.getStorageStatus();
+  assert.equal(reloaded.getSessionCaptures(added.sessionId).length, 1);
+  assert.equal(status.eventLog.integrity.recovered, true);
+  assert.equal(status.eventLog.integrity.reason, 'partial_last_line');
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('startup auto-recovers when event shape is invalid', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-review-recover-shape-'));
+  process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '0';
+  process.env.CONTEXT_REVIEW_DATA_DIR = tempDir;
+  process.env.CONTEXT_REVIEW_STORAGE_ADAPTER = 'event';
+  clearStorageModuleCache();
+
+  let { SessionStorage } = require('../src/storage/storage');
+  const { parseRequest } = require('../src/parser/parser');
+  const storage = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+
+  const capture = createCapture({
+    provider: 'openai',
+    model: 'gpt-4o',
+    agentUserAgent: 'codex/1.0',
+    timestamp: 1000,
+  });
+  const added = storage.addCapture(capture, parseRequest(capture));
+  const eventFile = path.join(tempDir, 'events.ndjson');
+  fs.appendFileSync(eventFile, '\n{"type":"capture_added","timestamp":2}\n');
+
+  clearStorageModuleCache();
+  ({ SessionStorage } = require('../src/storage/storage'));
+  const reloaded = new SessionStorage({ adapterMode: 'event', dataDir: tempDir, persistenceDisabled: false });
+  const status = reloaded.getStorageStatus();
+  assert.equal(reloaded.getSessionCaptures(added.sessionId).length, 1);
+  assert.equal(status.eventLog.integrity.recovered, true);
+  assert.equal(status.eventLog.integrity.reason, 'invalid_event_shape');
+
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});

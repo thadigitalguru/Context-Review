@@ -40,6 +40,15 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
   constructor({ dataDir, dataFile, eventFile, persistenceDisabled }) {
     super({ dataDir, dataFile, persistenceDisabled });
     this.eventFile = eventFile || path.join(dataDir, 'events.ndjson');
+    this.lastIntegrityReport = {
+      checkedAt: Date.now(),
+      healthy: true,
+      recovered: false,
+      degraded: false,
+      droppedLines: 0,
+      reason: 'not_checked',
+      backupFile: null,
+    };
   }
 
   load() {
@@ -48,15 +57,24 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
     if (!fs.existsSync(this.eventFile)) return state;
 
     try {
-      const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
+      const events = this.readEventsForLoad();
+      this.lastIntegrityReport = events.integrityReport;
       let current = normalizeState(state);
-      for (const line of lines) {
-        const event = JSON.parse(line);
+      for (const event of events.events) {
         current = applyEvent(current, event);
       }
       return normalizeState(current);
     } catch (e) {
       console.error('Failed to replay event log:', e.message);
+      this.lastIntegrityReport = {
+        checkedAt: Date.now(),
+        healthy: false,
+        recovered: false,
+        degraded: true,
+        droppedLines: 0,
+        reason: `replay_failed:${e.message}`,
+        backupFile: null,
+      };
       return state;
     }
   }
@@ -146,10 +164,10 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
 
   getEventLogStats() {
     if (this.persistenceDisabled) {
-      return { mode: 'event', persistenceDisabled: true, eventFile: this.eventFile, eventCount: 0, bytes: 0 };
+      return { mode: 'event', persistenceDisabled: true, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport };
     }
     if (!fs.existsSync(this.eventFile)) {
-      return { mode: 'event', persistenceDisabled: false, eventFile: this.eventFile, eventCount: 0, bytes: 0 };
+      return { mode: 'event', persistenceDisabled: false, eventFile: this.eventFile, eventCount: 0, bytes: 0, integrity: this.lastIntegrityReport };
     }
     const lines = fs.readFileSync(this.eventFile, 'utf8').split('\n').filter(Boolean);
     return {
@@ -158,6 +176,7 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
       eventFile: this.eventFile,
       eventCount: lines.length,
       bytes: fs.statSync(this.eventFile).size,
+      integrity: this.lastIntegrityReport,
     };
   }
 
@@ -168,6 +187,78 @@ class EventLogStorageAdapter extends FlatFileStorageAdapter {
       events.push(JSON.parse(line));
     }
     return events;
+  }
+
+  readEventsForLoad() {
+    const raw = fs.readFileSync(this.eventFile, 'utf8');
+    const parsed = parseEventLog(raw);
+    if (parsed.invalidLineIndex === -1) {
+      return {
+        events: parsed.events,
+        integrityReport: {
+          checkedAt: Date.now(),
+          healthy: true,
+          recovered: false,
+          degraded: false,
+          droppedLines: 0,
+          reason: 'ok',
+          backupFile: null,
+        },
+      };
+    }
+
+    const recovery = this.recoverEventLog(parsed);
+    if (!recovery.ok) {
+      return {
+        events: [],
+        integrityReport: {
+          checkedAt: Date.now(),
+          healthy: false,
+          recovered: false,
+          degraded: true,
+          droppedLines: parsed.totalLines - parsed.events.length,
+          reason: recovery.reason,
+          backupFile: recovery.backupFile || null,
+        },
+      };
+    }
+
+    return {
+      events: parsed.events,
+      integrityReport: {
+        checkedAt: Date.now(),
+        healthy: false,
+        recovered: true,
+        degraded: false,
+        droppedLines: parsed.totalLines - parsed.events.length,
+        reason: recovery.reason,
+        backupFile: recovery.backupFile || null,
+      },
+    };
+  }
+
+  recoverEventLog(parsed) {
+    const now = Date.now();
+    const backupFile = `${this.eventFile}.corrupt.${now}.bak`;
+    const validLines = parsed.validLines;
+
+    try {
+      fs.copyFileSync(this.eventFile, backupFile);
+      const out = validLines.length > 0 ? `${validLines.join('\n')}\n` : '';
+      fs.writeFileSync(this.eventFile, out);
+      return {
+        ok: true,
+        reason: parsed.reason || 'corrupt_event_log_recovered',
+        backupFile,
+      };
+    } catch (e) {
+      console.error('Failed to recover event log:', e.message);
+      return {
+        ok: false,
+        reason: `recovery_failed:${e.message}`,
+        backupFile: fs.existsSync(backupFile) ? backupFile : null,
+      };
+    }
   }
 }
 
@@ -231,6 +322,68 @@ function applyEvents(events) {
     current = applyEvent(current, event);
   }
   return normalizeState(current);
+}
+
+function parseEventLog(raw) {
+  const hasTrailingNewline = raw.endsWith('\n');
+  const lines = raw.split('\n');
+  if (hasTrailingNewline) lines.pop();
+  const events = [];
+  const validLines = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || !line.trim()) continue;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      const partialTail = i === lines.length - 1 && !hasTrailingNewline;
+      return {
+        totalLines: lines.length,
+        events,
+        validLines,
+        invalidLineIndex: i,
+        reason: partialTail ? 'partial_last_line' : 'invalid_json_line',
+      };
+    }
+
+    if (!isValidStorageEvent(parsed)) {
+      return {
+        totalLines: lines.length,
+        events,
+        validLines,
+        invalidLineIndex: i,
+        reason: 'invalid_event_shape',
+      };
+    }
+
+    events.push(parsed);
+    validLines.push(line);
+  }
+
+  return {
+    totalLines: lines.length,
+    events,
+    validLines,
+    invalidLineIndex: -1,
+    reason: 'ok',
+  };
+}
+
+function isValidStorageEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  if (typeof event.type !== 'string' || !event.type) return false;
+
+  if (event.type === 'seed_state') {
+    return !!event.state && typeof event.state === 'object';
+  }
+  if (event.type === 'clear_all') return true;
+  if (event.type === 'capture_added') {
+    return !!event.entry && typeof event.entry === 'object' && !!event.session && typeof event.session === 'object';
+  }
+  return false;
 }
 
 function selectRetainedEvents(events, options) {

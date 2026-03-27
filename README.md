@@ -237,6 +237,10 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
   - `CONTEXT_REVIEW_EVENT_RETENTION_MAX_EVENTS` keeps at most N recent events during compaction.
   - `CONTEXT_REVIEW_EVENT_RETENTION_MAX_AGE_DAYS` keeps events newer than N days during compaction.
   - `CONTEXT_REVIEW_EVENT_COMPACT_ON_START=1` compacts on startup using the configured limits.
+- Startup integrity and recovery:
+  - Event logs are validated line-by-line at boot.
+  - On malformed JSON, partial tail writes, or invalid event shape, Context Review backs up the corrupt file and truncates to the last valid event.
+  - Recovery status is exposed in `GET /api/storage/status` under `eventLog.integrity`.
 
 ## Key Design Decisions
 
