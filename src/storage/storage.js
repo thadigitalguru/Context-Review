@@ -473,6 +473,7 @@ function loadLatestBenchmarkArtifacts(dir) {
   return {
     storageReplay: safeLoadJson(path.join(dir, 'storage-benchmark.json')),
     queryPerformance: safeLoadJson(path.join(dir, 'query-benchmark.json')),
+    apiSlo: safeLoadJson(path.join(dir, 'api-slo.json')),
   };
 }
 

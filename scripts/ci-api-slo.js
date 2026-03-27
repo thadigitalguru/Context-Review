@@ -68,6 +68,7 @@ async function startServer() {
     CONTEXT_REVIEW_DISABLE_PROXY: '1',
     CONTEXT_REVIEW_DISABLE_PERSISTENCE: '1',
     CONTEXT_REVIEW_DISABLE_BACKGROUND_ANALYSIS: '1',
+    CONTEXT_REVIEW_REQUIRE_AUTH: '0',
     CONTEXT_REVIEW_DATA_DIR: path.join(os.tmpdir(), `context-review-ci-slo-${process.pid}`),
   };
 

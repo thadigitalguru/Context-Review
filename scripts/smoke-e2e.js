@@ -18,6 +18,7 @@ async function main() {
     await refreshAnalysis();
     await validateSummaryAndCheck();
     await validateStorageHealth();
+    await validateOpsSummary();
     console.log('SMOKE OK: end-to-end CI flow succeeded');
   } catch (err) {
     console.error('SMOKE FAILED:', err.message);
@@ -35,8 +36,10 @@ async function startServer() {
     PROXY_PORT: String(PROXY_PORT),
     PROXY_HOST: '127.0.0.1',
     PROXY_ADVERTISE_HOST: '127.0.0.1',
+    CONTEXT_REVIEW_DISABLE_PROXY: '1',
     CONTEXT_REVIEW_DISABLE_PERSISTENCE: '1',
     CONTEXT_REVIEW_DISABLE_BACKGROUND_ANALYSIS: '0',
+    CONTEXT_REVIEW_REQUIRE_AUTH: '0',
     CONTEXT_REVIEW_DATA_DIR: path.join(os.tmpdir(), `context-review-smoke-${process.pid}`),
   };
 
@@ -181,6 +184,14 @@ async function validateStorageHealth() {
   }
   if (!health.json || health.json.ok !== true) {
     throw new Error('storage health returned non-healthy payload');
+  }
+}
+
+async function validateOpsSummary() {
+  const ops = await get('/api/ops/summary');
+  if (!ops.ok) throw new Error(`ops summary failed: ${ops.status} ${ops.text}`);
+  if (!ops.json || !ops.json.storage || !ops.json.health) {
+    throw new Error('ops summary missing required fields');
   }
 }
 

@@ -16,6 +16,12 @@ let state = {
   findingFilter: null,
   diffFilter: null,
   findingSimulations: {},
+  opsSummary: null,
+  opsActionState: {
+    loading: false,
+    message: '',
+    error: '',
+  },
 };
 
 async function api(path) {
@@ -178,11 +184,13 @@ function healthLabel(score) {
 
 async function refresh() {
   state.sessions = await api('/sessions') || [];
-  const [stats, reportSummary] = await Promise.all([
+  const [stats, reportSummary, opsSummary] = await Promise.all([
     api('/stats'),
     api('/reports/summary?days=7'),
+    api('/ops/summary'),
   ]);
   state.reportSummary = reportSummary;
+  state.opsSummary = opsSummary;
 
   if (state.currentSessionId) {
     const [session, captures, timeline, findings, diffs, trends] = await Promise.all([
@@ -382,6 +390,8 @@ function renderOverview(area) {
 
   const findingsHTML = renderFindingsSection();
   const workflowHTML = renderPhase3Workflow();
+  const opsAlertsHTML = renderOpsAlerts();
+  const opsPanelHTML = renderOpsPanel();
   const diffHTML = renderContextDiff();
   const compHTML = renderComposition(comp);
   const countingHTML = renderTokenCountingSummary(comp?.token_counting);
@@ -393,7 +403,187 @@ function renderOverview(area) {
     <div style="font-size:11px;color:var(--text-muted)">View all &rarr;</div>
   </div>`;
 
-  area.innerHTML = statsHTML + findingsHTML + workflowHTML + diffHTML + compHTML + countingHTML + messagesHTML;
+  area.innerHTML = opsAlertsHTML + statsHTML + findingsHTML + workflowHTML + opsPanelHTML + diffHTML + compHTML + countingHTML + messagesHTML;
+}
+
+function renderOpsAlerts() {
+  const ops = state.opsSummary;
+  if (!ops || !ops.storage) return '';
+
+  const alerts = [];
+  const storageHealth = ops.health?.storage || 'unknown';
+  if (storageHealth !== 'healthy') {
+    alerts.push({
+      severity: 'critical',
+      title: 'Storage Degraded',
+      text: ops.storage?.eventLog?.integrity?.reason || 'Storage health endpoint reports degraded mode.',
+    });
+  }
+
+  const replayBench = ops.storage?.benchmarks?.latest?.storageReplay;
+  if (replayBench && replayBench.pass === false) {
+    alerts.push({
+      severity: 'warning',
+      title: 'Replay Benchmark Failed',
+      text: `Replay ${replayBench.replayMs}ms exceeds threshold ${replayBench.maxReplayMs}ms.`,
+    });
+  }
+
+  const queryBench = ops.storage?.benchmarks?.latest?.queryPerformance;
+  if (queryBench && queryBench.pass === false) {
+    alerts.push({
+      severity: 'warning',
+      title: 'Query Benchmark Failed',
+      text: `Filter ${queryBench.timings?.filterMs}ms, report ${queryBench.timings?.reportMs}ms exceeded thresholds.`,
+    });
+  }
+
+  const apiSlo = ops.storage?.benchmarks?.latest?.apiSlo;
+  if (apiSlo && apiSlo.pass === false) {
+    alerts.push({
+      severity: 'warning',
+      title: 'API SLO Breach',
+      text: `p95 sessions ${apiSlo.p95?.sessions}ms or report ${apiSlo.p95?.report}ms over threshold.`,
+    });
+  }
+
+  if (alerts.length === 0) return '';
+
+  return `<div class="ops-alerts">
+    ${alerts.map((alert) => `
+      <div class="ops-alert ${alert.severity}">
+        <div class="ops-alert-title">${escapeHtml(alert.title)}</div>
+        <div class="ops-alert-text">${escapeHtml(alert.text)}</div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+function renderOpsPanel() {
+  const ops = state.opsSummary;
+  if (!ops || !ops.storage) return '';
+
+  const storage = ops.storage;
+  const telemetry = storage.eventLog?.telemetry || {};
+  const integrity = storage.eventLog?.integrity || {};
+  const maintenance = storage.maintenance || {};
+  const benchmarkLatest = storage.benchmarks?.latest || {};
+  const action = state.opsActionState;
+
+  return `<div class="workflow-section">
+    <div class="section-header">
+      <div class="section-title">OPS CONTROL<span class="turn-info">Health, maintenance, and benchmark artifacts</span></div>
+      <button class="btn" onclick="refreshOpsSummary()">Refresh Ops</button>
+    </div>
+    <div class="workflow-grid">
+      <div class="workflow-card">
+        <div class="workflow-card-title">Storage Health</div>
+        <div class="workflow-item"><span>Status</span><span>${escapeHtml(ops.health?.storage || 'unknown')}</span></div>
+        <div class="workflow-item"><span>Integrity</span><span>${escapeHtml(integrity.reason || 'n/a')}</span></div>
+        <div class="workflow-item"><span>Replay</span><span>${fmt(telemetry.replayMs || 0)} ms</span></div>
+        <div class="workflow-item"><span>Recoveries</span><span>${fmt(telemetry.recoveriesTotal || 0)}</span></div>
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Maintenance</div>
+        <div class="workflow-item"><span>Interval</span><span>${fmt(maintenance.intervalMinutes || 0)} min</span></div>
+        <div class="workflow-item"><span>Min idle</span><span>${fmt(maintenance.minIdleMs || 0)} ms</span></div>
+        <div class="workflow-item"><span>Last run</span><span>${maintenance.lastRunAt ? timeAgo(maintenance.lastRunAt) : 'never'}</span></div>
+        <div class="workflow-card-sub">${escapeHtml(maintenance.lastResult?.reason || 'No maintenance run yet')}</div>
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Actions</div>
+        <div class="ops-actions">
+          <button class="finding-action-btn" onclick="runOpsAction('maintenanceDry')">Maintenance Dry-Run</button>
+          <button class="finding-action-btn" onclick="runOpsAction('maintenanceForce')">Maintenance Force</button>
+          <button class="finding-action-btn" onclick="runOpsAction('compactDry')">Compaction Dry-Run</button>
+        </div>
+        ${action.loading ? `<div class="workflow-card-sub">Running action...</div>` : ''}
+        ${action.message ? `<div class="workflow-card-sub">${escapeHtml(action.message)}</div>` : ''}
+        ${action.error ? `<div class="workflow-card-sub" style="color:var(--red)">${escapeHtml(action.error)}</div>` : ''}
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Artifacts</div>
+        <div class="ops-actions">
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('storage-status')">Download Storage Status</button>
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('storage-benchmark')">Download Replay Benchmark</button>
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('query-benchmark')">Download Query Benchmark</button>
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('api-slo')">Download API SLO</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function refreshOpsSummary() {
+  const ops = await api('/ops/summary');
+  if (ops) state.opsSummary = ops;
+  renderMain();
+}
+
+async function runOpsAction(type) {
+  state.opsActionState = { loading: true, message: '', error: '' };
+  renderMain();
+
+  let result = null;
+  if (type === 'maintenanceDry') {
+    result = await postApi('/storage/maintenance/run', { dryRun: true });
+  } else if (type === 'maintenanceForce') {
+    result = await postApi('/storage/maintenance/run', { dryRun: false, force: true });
+  } else if (type === 'compactDry') {
+    result = await postApi('/storage/compact', { dryRun: true });
+  } else {
+    state.opsActionState = { loading: false, message: '', error: 'Unknown ops action' };
+    renderMain();
+    return;
+  }
+
+  if (result?._error) {
+    state.opsActionState = { loading: false, message: '', error: String(result._error) };
+  } else if (!result) {
+    state.opsActionState = { loading: false, message: '', error: 'Action failed' };
+  } else {
+    const reason = result.reason || (result.compacted ? 'completed' : 'no changes');
+    state.opsActionState = { loading: false, message: `Result: ${reason}`, error: '' };
+    await refreshOpsSummary();
+  }
+
+  renderMain();
+}
+
+function downloadOpsArtifact(type) {
+  const ops = state.opsSummary?.storage?.benchmarks?.latest || {};
+  let payload = null;
+  let filename = `${type}.json`;
+
+  if (type === 'storage-status') {
+    payload = state.opsSummary?.storage || null;
+    filename = 'storage-status.json';
+  } else if (type === 'storage-benchmark') {
+    payload = ops.storageReplay || null;
+    filename = 'storage-benchmark.json';
+  } else if (type === 'query-benchmark') {
+    payload = ops.queryPerformance || null;
+    filename = 'query-benchmark.json';
+  } else if (type === 'api-slo') {
+    payload = ops.apiSlo || null;
+    filename = 'api-slo.json';
+  }
+
+  if (!payload) {
+    state.opsActionState = { loading: false, message: '', error: `No data available for ${type}` };
+    renderMain();
+    return;
+  }
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function renderPhase3Workflow() {
