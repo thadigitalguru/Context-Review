@@ -1,4 +1,12 @@
 const { stringifyValue } = require('../tokens/counter');
+const NORMALIZED_CATEGORIES = new Set([
+  'assistant_text',
+  'user_text',
+  'tool_calls',
+  'tool_results',
+  'thinking_blocks',
+  'media',
+]);
 
 function normalizeCapture(capture) {
   const provider = capture.provider;
@@ -25,6 +33,39 @@ function normalizeCapture(capture) {
   }
 
   return normalized;
+}
+
+function validateNormalizedCapture(normalized) {
+  if (!normalized || typeof normalized !== 'object') {
+    return { ok: false, error: 'normalized capture must be an object' };
+  }
+  if (!normalized.provider || typeof normalized.provider !== 'string') {
+    return { ok: false, error: 'provider is required' };
+  }
+  if (!normalized.model || typeof normalized.model !== 'string') {
+    return { ok: false, error: 'model is required' };
+  }
+  if (!Array.isArray(normalized.systemPrompts) || !Array.isArray(normalized.toolDefinitions) ||
+    !Array.isArray(normalized.messages) || !Array.isArray(normalized.items)) {
+    return { ok: false, error: 'normalized arrays are required' };
+  }
+
+  for (const prompt of normalized.systemPrompts) {
+    const check = validateNormalizedSystemPrompt(prompt);
+    if (!check.ok) return check;
+  }
+
+  for (const tool of normalized.toolDefinitions) {
+    const check = validateNormalizedToolDefinition(tool);
+    if (!check.ok) return check;
+  }
+
+  for (const item of normalized.items) {
+    const check = validateNormalizedItem(item);
+    if (!check.ok) return check;
+  }
+
+  return { ok: true };
 }
 
 function normalizeAnthropic(body, normalized) {
@@ -338,4 +379,34 @@ function extractModel(body, response, provider) {
   return 'unknown';
 }
 
-module.exports = { normalizeCapture };
+function validateNormalizedSystemPrompt(prompt) {
+  if (!prompt || typeof prompt !== 'object') return { ok: false, error: 'system prompt must be an object' };
+  if (typeof prompt.text !== 'string') return { ok: false, error: 'system prompt text must be a string' };
+  return validateSource(prompt.source);
+}
+
+function validateNormalizedToolDefinition(tool) {
+  if (!tool || typeof tool !== 'object') return { ok: false, error: 'tool definition must be an object' };
+  if (typeof tool.name !== 'string') return { ok: false, error: 'tool definition name must be a string' };
+  return validateSource(tool.source);
+}
+
+function validateNormalizedItem(item) {
+  if (!item || typeof item !== 'object') return { ok: false, error: 'item must be an object' };
+  if (!NORMALIZED_CATEGORIES.has(item.category)) return { ok: false, error: `invalid category: ${item.category}` };
+  if (typeof item.role !== 'string') return { ok: false, error: 'item role must be a string' };
+  if (typeof item.text !== 'string') return { ok: false, error: 'item text must be a string' };
+  return validateSource(item.source);
+}
+
+function validateSource(source) {
+  if (!source || typeof source !== 'object') return { ok: false, error: 'source is required' };
+  if (typeof source.provider !== 'string') return { ok: false, error: 'source provider must be a string' };
+  if (typeof source.role !== 'string') return { ok: false, error: 'source role must be a string' };
+  if (!Number.isFinite(source.msgIndex)) return { ok: false, error: 'source msgIndex must be numeric' };
+  if (!Number.isFinite(source.partIndex)) return { ok: false, error: 'source partIndex must be numeric' };
+  if (typeof source.path !== 'string') return { ok: false, error: 'source path must be a string' };
+  return { ok: true };
+}
+
+module.exports = { normalizeCapture, validateNormalizedCapture };
