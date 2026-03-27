@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>Context Review</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2310b981'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='16' font-weight='bold'>CR</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="top-bar" id="top-bar-content"></div>
+  <div class="turn-nav" id="turn-nav" style="display:none"></div>
+
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-label">Sessions</div>
+      <div class="sidebar-sessions" id="session-list"></div>
+    </aside>
+
+    <div class="main-area">
+      <div id="welcome-screen" class="welcome-screen" style="flex:1">
+        <div class="welcome-icon">&#9678;</div>
+        <h2>Context Review</h2>
+        <p>See inside your LLM context and stop burning tokens you can't see.</p>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Built in Nairobi for teams who can't afford to waste tokens or bandwidth.</p>
+        <div class="setup-box">
+          <h3>Quick Setup</h3>
+          <div class="setup-step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              Point your LLM tool to this proxy:
+              <div class="code-block">
+                # Claude Code / Anthropic<br>
+                export ANTHROPIC_BASE_URL=http://localhost:8080<br><br>
+                # OpenAI / Codex / Aider<br>
+                export OPENAI_BASE_URL=http://localhost:8080<br><br>
+                # Google / Gemini CLI<br>
+                export GOOGLE_API_BASE_URL=http://localhost:8080
+              </div>
+            </div>
+          </div>
+          <div class="setup-step">
+            <div class="step-num">2</div>
+            <div class="step-text">Use your coding tool normally. Every API call is captured and analyzed.</div>
+          </div>
+          <div class="setup-step">
+            <div class="step-num">3</div>
+            <div class="step-text">Come back here for composition breakdown, costs, and optimization suggestions.</div>
+          </div>
+          <div style="margin-top:18px;text-align:center">
+            <button class="btn btn-accent" onclick="loadDemoData()" style="padding:10px 28px;font-size:13px">
+              Load Demo Data
+            </button>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:6px">Try with sample data to see how it works</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="session-view" style="display:none;flex-direction:column;flex:1">
+        <div class="tab-bar">
+          <div class="tab active" data-tab="overview" onclick="switchTab('overview')">
+            <span class="tab-icon">&#9881;</span> Overview
+          </div>
+          <div class="tab" data-tab="messages" onclick="switchTab('messages')">
+            <span class="tab-icon">&#128172;</span> Messages
+          </div>
+          <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">
+            <span class="tab-icon">&#128200;</span> Timeline
+          </div>
+        </div>
+        <div class="main-scroll" id="tab-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js?v=4"></script>
+</body>
+</html>
