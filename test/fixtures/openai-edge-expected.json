@@ -1,0 +1,81 @@
+{
+  "provider": "openai",
+  "model": "gpt-4o",
+  "total_tokens": 259,
+  "token_counting": {
+    "method": "tiktoken_o200k_base",
+    "confidence": "high",
+    "source": "tokenizer"
+  },
+  "response_tokens": {
+    "input": 1850,
+    "output": 260,
+    "cacheRead": 300
+  },
+  "categories": {
+    "system_prompts": {
+      "tokens": 11,
+      "count": 1,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    },
+    "tool_definitions": {
+      "tokens": 66,
+      "count": 2,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    },
+    "tool_calls": {
+      "tokens": 60,
+      "count": 2,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    },
+    "tool_results": {
+      "tokens": 16,
+      "count": 2,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    },
+    "assistant_text": {
+      "tokens": 43,
+      "count": 1,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    },
+    "user_text": {
+      "tokens": 48,
+      "count": 1,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    },
+    "thinking_blocks": {
+      "tokens": 0,
+      "count": 0,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "media": {
+      "tokens": 15,
+      "count": 1,
+      "token_method": "tiktoken_o200k_base",
+      "token_confidence": "high"
+    }
+  },
+  "source_checks": {
+    "first_tool_call_source": {
+      "provider": "openai",
+      "role": "assistant",
+      "msgIndex": 3,
+      "partIndex": 0,
+      "path": "messages[2].tool_calls[0]"
+    },
+    "first_tool_result_source": {
+      "provider": "openai",
+      "role": "tool",
+      "msgIndex": 4,
+      "partIndex": 0,
+      "path": "messages[3]"
+    }
+  }
+}

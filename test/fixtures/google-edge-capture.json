@@ -1,0 +1,61 @@
+{
+  "provider": "google",
+  "timestamp": 1760000001200,
+  "request": {
+    "method": "POST",
+    "path": "/v1beta/models/gemini-2.5-pro:generateContent",
+    "headers": {
+      "user-agent": "gemini-cli/1.2"
+    },
+    "body": {
+      "model": "gemini-2.5-pro",
+      "systemInstruction": {
+        "parts": [
+          { "text": "You are Gemini CLI." },
+          { "text": "Prefer concise code diffs." }
+        ]
+      },
+      "tools": [
+        {
+          "functionDeclarations": [
+            { "name": "search_code", "description": "Search codebase" },
+            { "name": "write_file", "description": "Write file" }
+          ]
+        }
+      ],
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            { "text": "Analyze image and update config." },
+            { "inlineData": { "mimeType": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAUA" } }
+          ]
+        },
+        {
+          "role": "model",
+          "parts": [
+            { "functionCall": { "name": "search_code", "args": { "pattern": "CONFIG_FLAG" } } }
+          ]
+        },
+        {
+          "role": "user",
+          "parts": [
+            { "functionResponse": { "name": "search_code", "response": { "matches": ["CONFIG_FLAG=false"] } } }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "usageMetadata": {
+        "promptTokenCount": 1200,
+        "candidatesTokenCount": 210,
+        "cachedContentTokenCount": 50
+      }
+    }
+  },
+  "isStreaming": false
+}

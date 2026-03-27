@@ -14,6 +14,7 @@ function normalizeCapture(capture) {
   if (!body) return null;
 
   const normalized = {
+    schemaVersion: '1.0.0',
     provider,
     model: extractModel(body, capture.response, provider),
     systemPrompts: [],
@@ -41,6 +42,12 @@ function validateNormalizedCapture(normalized) {
   }
   if (!normalized.provider || typeof normalized.provider !== 'string') {
     return { ok: false, error: 'provider is required' };
+  }
+  if (!normalized.schemaVersion || typeof normalized.schemaVersion !== 'string') {
+    return { ok: false, error: 'schemaVersion is required' };
+  }
+  if (!/^\d+\.\d+\.\d+$/.test(normalized.schemaVersion)) {
+    return { ok: false, error: 'schemaVersion must be semver-like' };
   }
   if (!normalized.model || typeof normalized.model !== 'string') {
     return { ok: false, error: 'model is required' };

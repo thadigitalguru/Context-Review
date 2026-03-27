@@ -1,0 +1,95 @@
+{
+  "provider": "openai",
+  "timestamp": 1760000001100,
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "headers": {
+      "user-agent": "codex/1.2"
+    },
+    "body": {
+      "model": "gpt-4o",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are Codex. Explain each code edit briefly."
+        },
+        {
+          "role": "user",
+          "content": [
+            { "type": "text", "text": "Use this screenshot and patch the issue." },
+            { "type": "image_url", "image_url": { "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA" } }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "text", "text": "I will inspect and patch now." },
+            { "type": "image_url", "image_url": { "url": "data:image/png;base64,QUJDREVGR0hJSg==" } }
+          ],
+          "tool_calls": [
+            {
+              "id": "call-1",
+              "type": "function",
+              "function": {
+                "name": "edit_file",
+                "arguments": "{\"path\":\"src/app.js\",\"patch\":\"...\"}"
+              }
+            },
+            {
+              "id": "call-2",
+              "type": "function",
+              "function": {
+                "name": "run_tests",
+                "arguments": "{\"target\":\"unit\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call-1",
+          "content": "<html><body>Patched successfully</body></html>"
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call-2",
+          "content": "All tests passing."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "edit_file",
+            "description": "Edit file",
+            "parameters": { "type": "object", "properties": { "path": { "type": "string" } } }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "run_tests",
+            "description": "Run tests",
+            "parameters": { "type": "object", "properties": { "target": { "type": "string" } } }
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "model": "gpt-4o",
+      "usage": {
+        "prompt_tokens": 1850,
+        "completion_tokens": 260,
+        "prompt_tokens_details": {
+          "cached_tokens": 300
+        }
+      }
+    }
+  },
+  "isStreaming": false
+}

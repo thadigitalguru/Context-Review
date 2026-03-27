@@ -1,0 +1,62 @@
+{
+  "provider": "anthropic",
+  "timestamp": 1760000001000,
+  "request": {
+    "method": "POST",
+    "path": "/v1/messages",
+    "headers": {
+      "user-agent": "claude-code/1.1"
+    },
+    "body": {
+      "model": "claude-sonnet-4-20250514",
+      "system": [
+        { "type": "text", "text": "You are Claude Code." },
+        { "type": "text", "text": "Focus on safe refactors." }
+      ],
+      "tools": [
+        {
+          "name": "Read",
+          "description": "Read file",
+          "input_schema": { "type": "object", "properties": { "path": { "type": "string" } } }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            { "type": "text", "text": "Inspect the screenshot and explain." },
+            { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAUA" } }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "thinking", "thinking": "I should inspect files first." },
+            { "type": "tool_use", "id": "toolu_1", "name": "Read", "input": { "path": "src/app.js" } },
+            { "type": "text", "text": "Running Read now." }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            { "type": "tool_result", "tool_use_id": "toolu_1", "content": "<div>const x = 1;</div>" }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "model": "claude-sonnet-4-20250514",
+      "usage": {
+        "input_tokens": 1400,
+        "output_tokens": 320,
+        "cache_creation_input_tokens": 200,
+        "cache_read_input_tokens": 100
+      }
+    }
+  },
+  "isStreaming": false
+}

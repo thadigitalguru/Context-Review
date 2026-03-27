@@ -51,6 +51,9 @@ const CASES = [
   { name: 'anthropic', capture: 'anthropic-capture.json', expected: 'anthropic-expected.json', expectedAgent: 'claude_code' },
   { name: 'openai', capture: 'openai-capture.json', expected: 'openai-expected.json', expectedAgent: 'codex' },
   { name: 'google', capture: 'google-capture.json', expected: 'google-expected.json', expectedAgent: 'gemini_cli' },
+  { name: 'anthropic-edge', capture: 'anthropic-edge-capture.json', expected: 'anthropic-edge-expected.json', expectedAgent: 'claude_code' },
+  { name: 'openai-edge', capture: 'openai-edge-capture.json', expected: 'openai-edge-expected.json', expectedAgent: 'codex' },
+  { name: 'google-edge', capture: 'google-edge-capture.json', expected: 'google-edge-expected.json', expectedAgent: 'gemini_cli' },
 ];
 
 for (const testCase of CASES) {
