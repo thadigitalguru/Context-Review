@@ -233,8 +233,18 @@ function reconstructAnthropicStream(events) {
       if (currentBlock && event.delta.thinking) {
         currentBlock.thinking = (currentBlock.thinking || '') + event.delta.thinking;
       }
+      if (currentBlock && event.delta.partial_json) {
+        currentBlock.input = (currentBlock.input || '') + event.delta.partial_json;
+      }
     }
     if (event.type === 'content_block_stop') {
+      if (currentBlock && currentBlock.type === 'tool_use' && typeof currentBlock.input === 'string') {
+        try {
+          currentBlock.input = JSON.parse(currentBlock.input);
+        } catch {
+          // Preserve raw partial payload when JSON assembly is incomplete.
+        }
+      }
       if (currentBlock) result.content.push(currentBlock);
       currentBlock = null;
     }
@@ -247,16 +257,49 @@ function reconstructAnthropicStream(events) {
 
 function reconstructOpenAIStream(events) {
   const result = { choices: [{ message: { role: 'assistant', content: '' } }], model: '', usage: {} };
+  const toolCalls = new Map();
 
   for (const event of events) {
     if (event.model) result.model = event.model;
     if (event.choices && event.choices[0] && event.choices[0].delta) {
       const delta = event.choices[0].delta;
       if (delta.content) result.choices[0].message.content += delta.content;
+      if (Array.isArray(delta.tool_calls)) {
+        for (const toolDelta of delta.tool_calls) {
+          const index = Number.isFinite(toolDelta.index) ? toolDelta.index : 0;
+          const existing = toolCalls.get(index) || {
+            id: toolDelta.id || '',
+            type: toolDelta.type || 'function',
+            function: { name: '', arguments: '' },
+          };
+          if (toolDelta.id) existing.id = toolDelta.id;
+          if (toolDelta.type) existing.type = toolDelta.type;
+          if (toolDelta.function) {
+            if (toolDelta.function.name) existing.function.name = toolDelta.function.name;
+            if (toolDelta.function.arguments) {
+              existing.function.arguments += toolDelta.function.arguments;
+            }
+          }
+          toolCalls.set(index, existing);
+        }
+      }
     }
     if (event.usage) result.usage = event.usage;
+  }
+
+  if (toolCalls.size > 0) {
+    result.choices[0].message.tool_calls = [...toolCalls.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, value]) => value);
   }
   return result;
 }
 
-module.exports = { createProxyServer, detectProvider };
+module.exports = {
+  createProxyServer,
+  detectProvider,
+  parseStreamedResponse,
+  reconstructAnthropicStream,
+  reconstructOpenAIStream,
+  isStreamingRequest,
+};
