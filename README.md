@@ -233,6 +233,14 @@ npm run ci:storage-health
 
 This command fails if `/api/health/storage` is degraded and writes `artifacts/storage-status.json` for pipeline artifacts.
 
+For CI replay performance governance:
+
+```bash
+npm run ci:storage-benchmark
+```
+
+This command benchmarks event-log replay and fails if `replayMs` exceeds the threshold (`CI_STORAGE_BENCH_MAX_REPLAY_MS`, default `2000`), writing `artifacts/storage-benchmark.json`.
+
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 ## Phase 5 Architecture Notes
