@@ -13,6 +13,7 @@ let state = {
   pollTimer: null,
   findingFilter: null,
   diffFilter: null,
+  findingSimulations: {},
 };
 
 async function api(path) {
@@ -22,6 +23,21 @@ async function api(path) {
     const text = await r.text();
     try { return JSON.parse(text); } catch { return null; }
   } catch { return null; }
+}
+
+async function postApi(path, payload) {
+  try {
+    const r = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) return null;
+    const text = await r.text();
+    try { return JSON.parse(text); } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function fmt(n) {
@@ -408,7 +424,7 @@ function renderFindingsSection() {
           <div class="finding-body">
             <div class="finding-title">${f.title}</div>
             <div class="finding-desc">${f.description}</div>
-            ${renderFindingMeta(f)}
+            ${renderFindingMeta(f, findingIndex)}
             ${f.preview ? `<div class="finding-preview">${escapeHtml(f.preview.substring(0, 140))}</div>` : ''}
           </div>
           <div class="finding-severity ${sevClass}">${sevLabel}</div>
@@ -418,14 +434,19 @@ function renderFindingsSection() {
   </div>`;
 }
 
-function renderFindingMeta(finding) {
+function renderFindingMeta(finding, findingIndex) {
   const chips = [];
   const details = [];
+  const simulationKey = getFindingKey(finding, findingIndex);
+  const simulation = state.findingSimulations[simulationKey] || null;
 
   if (finding.estimatedSavings && typeof finding.estimatedSavings.tokens === 'number') {
     const confidence = finding.estimatedSavings.confidence || 'heuristic';
     chips.push(`<span class="finding-chip savings">Save ~${fmt(finding.estimatedSavings.tokens)} tokens</span>`);
     chips.push(`<span class="finding-chip confidence">${escapeHtml(confidence)}</span>`);
+    if (typeof finding.recommendation?.impact?.dollars === 'number') {
+      chips.push(`<span class="finding-chip savings">$${Number(finding.recommendation.impact.dollars).toFixed(4)} est.</span>`);
+    }
   }
 
   if (finding.source) {
@@ -448,12 +469,28 @@ function renderFindingMeta(finding) {
     chips.push('<span class="finding-chip jump">Jump to turn</span>');
   }
 
+  if (finding.recommendation?.action?.type) {
+    const actionLabel = recommendationActionLabel(finding.recommendation.action.type);
+    details.push(`<div class="finding-action-row">
+      <button class="finding-action-btn" onclick="event.stopPropagation();runFindingSimulation(${findingIndex})">${simulation?.loading ? 'Simulating...' : `Simulate: ${escapeHtml(actionLabel)}`}</button>
+      ${simulation?.delta ? `<span class="finding-action-impact">${renderSimulationDelta(simulation.delta)}</span>` : ''}
+      ${simulation?.error ? `<span class="finding-action-impact error">${escapeHtml(simulation.error)}</span>` : ''}
+    </div>`);
+  }
+
   if (chips.length === 0 && details.length === 0) return '';
 
   return `<div class="finding-meta">
     ${chips.length > 0 ? `<div class="finding-chips">${chips.join('')}</div>` : ''}
     ${details.length > 0 ? `<div class="finding-details">${details.join('')}</div>` : ''}
   </div>`;
+}
+
+function renderSimulationDelta(delta) {
+  const saved = typeof delta.tokens_saved === 'number' ? fmt(delta.tokens_saved) : '0';
+  const percent = typeof delta.token_percent_saved === 'number' ? delta.token_percent_saved : 0;
+  const dollars = typeof delta.estimated_dollar_savings === 'number' ? delta.estimated_dollar_savings : 0;
+  return `-${saved} tokens (${percent}%) · $${Number(dollars).toFixed(4)} est.`;
 }
 
 function formatSource(source) {
@@ -473,6 +510,52 @@ function hasFindingJumpTarget(finding) {
     (Array.isArray(finding.sources) && finding.sources.length > 0) ||
     (Array.isArray(finding.tools) && finding.tools.length > 0)
   );
+}
+
+function getFindingKey(finding, index) {
+  const sourceMsg = finding?.source?.msgIndex ?? 'na';
+  const cap = finding?.captureId || finding?.source?.captureId || finding?.sources?.[0]?.captureId || finding?.tools?.[0]?.captureId || 'na';
+  return `${finding?.category || 'other'}|${cap}|${sourceMsg}|${finding?.title || index}`;
+}
+
+function recommendationActionLabel(type) {
+  if (type === 'remove_tools') return 'Remove unused tools';
+  if (type === 'trim_tool_results') return 'Trim tool result';
+  if (type === 'compact_history') return 'Compact history';
+  if (type === 'shorten_system_prompt') return 'Shorten system prompt';
+  return type || 'Apply action';
+}
+
+async function runFindingSimulation(index) {
+  const finding = state.findings[index];
+  if (!finding || !finding.recommendation?.action || !state.currentSessionId) return;
+
+  const captureId = finding.captureId
+    || finding.source?.captureId
+    || finding.sources?.[0]?.captureId
+    || finding.tools?.[0]?.captureId
+    || state.captures[state.currentTurn]?.id
+    || null;
+
+  if (!captureId) return;
+
+  const key = getFindingKey(finding, index);
+  state.findingSimulations[key] = { loading: true };
+  renderMain();
+
+  const result = await postApi('/simulate', {
+    sessionId: state.currentSessionId,
+    captureId,
+    actions: [finding.recommendation.action],
+  });
+
+  if (!result || !result.delta) {
+    state.findingSimulations[key] = { loading: false, error: 'Simulation unavailable' };
+  } else {
+    state.findingSimulations[key] = { loading: false, delta: result.delta };
+  }
+
+  renderMain();
 }
 
 async function goToFinding(index) {
@@ -894,6 +977,7 @@ function selectSession(id) {
   state.currentTab = 'overview';
   state.findingFilter = null;
   state.diffFilter = null;
+  state.findingSimulations = {};
   refresh();
 }
 

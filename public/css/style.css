@@ -795,6 +795,39 @@ body {
   word-break: break-word;
 }
 
+.finding-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.finding-action-btn {
+  border: 1px solid rgba(84,160,255,0.35);
+  background: rgba(84,160,255,0.12);
+  color: var(--blue);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.finding-action-btn:hover {
+  background: rgba(84,160,255,0.2);
+}
+
+.finding-action-impact {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.finding-action-impact.error {
+  color: var(--red);
+}
+
 .finding-preview {
   margin-top: 10px;
   padding: 10px 12px;

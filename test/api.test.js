@@ -60,13 +60,14 @@ function createApp(storage) {
   return app;
 }
 
-function requestApp(app, { method = 'GET', url }) {
+function requestApp(app, { method = 'GET', url, body }) {
   return new Promise((resolve, reject) => {
     const req = {
       method,
       url,
-      headers: {},
-      body: undefined,
+      headers: body !== undefined ? { 'content-type': 'application/json' } : {},
+      body,
+      _body: body !== undefined,
       query: {},
       params: {},
       on(event, handler) {
@@ -139,4 +140,32 @@ test('api capture detail route is scoped to the requested session and findings e
   const findings = findingsRes.body;
   assert.ok(findings.some((finding) => finding.estimatedSavings));
   assert.ok(findings.some((finding) => finding.source || finding.sources || finding.tools));
+});
+
+test('api simulate returns before/after deltas for recommendation actions', async () => {
+  const storage = new SessionStorage();
+  const capture = createCapture();
+  const breakdown = parseRequest(capture);
+  const added = storage.addCapture(capture, breakdown);
+  const app = createApp(storage);
+
+  const simRes = await requestApp(app, {
+    method: 'POST',
+    url: '/api/simulate',
+    body: {
+      sessionId: added.sessionId,
+      captureId: added.captureId,
+      actions: [
+        { type: 'remove_tools', params: { names: ['unused_tool'] } },
+        { type: 'trim_tool_results', params: { msgIndex: 3, maxTokens: 10 } },
+      ],
+    },
+  });
+
+  assert.equal(simRes.statusCode, 200);
+  assert.ok(simRes.body.baseline.total_tokens > 0);
+  assert.ok(simRes.body.simulated.total_tokens <= simRes.body.baseline.total_tokens);
+  assert.ok(simRes.body.delta.tokens_saved >= 0);
+  assert.ok(Array.isArray(simRes.body.simulated.actions));
+  assert.equal(simRes.body.simulated.actions.length, 2);
 });

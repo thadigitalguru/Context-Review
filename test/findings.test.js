@@ -40,8 +40,12 @@ test('findings include exact source references and savings estimates', () => {
   assert.ok(htmlFinding);
   assert.equal(htmlFinding.source.msgIndex, 3);
   assert.ok(htmlFinding.estimatedSavings.tokens >= 0);
+  assert.equal(htmlFinding.recommendation.action.type, 'trim_tool_results');
+  assert.ok(htmlFinding.recommendation.impact.tokens >= 0);
 
   assert.ok(unusedToolFinding);
   assert.equal(unusedToolFinding.tools[0].name, 'Write');
   assert.ok(unusedToolFinding.estimatedSavings.tokens > 0);
+  assert.equal(unusedToolFinding.recommendation.action.type, 'remove_tools');
+  assert.ok(unusedToolFinding.recommendation.impact.dollars >= 0);
 });

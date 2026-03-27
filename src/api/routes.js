@@ -7,6 +7,12 @@ function createAPIRouter(storage) {
   const router = express.Router();
 
   router.post('/simulate', (req, res) => {
+    if (Array.isArray(req.body.actions) && req.body.actions.length > 0) {
+      const simulation = runActionSimulation(storage, req.body);
+      if (simulation.error) return res.status(400).json({ error: simulation.error });
+      return res.json(simulation);
+    }
+
     const { provider, request: simReq } = req.body;
     if (!provider || !simReq) return res.status(400).json({ error: 'Missing provider or request' });
 
@@ -213,6 +219,236 @@ function createAPIRouter(storage) {
   });
 
   return router;
+}
+
+function runActionSimulation(storage, payload) {
+  const baseline = resolveSimulationBaseline(storage, payload);
+  if (!baseline || !baseline.breakdown) {
+    return { error: 'Missing simulation baseline. Provide sessionId/captureId or breakdown.' };
+  }
+
+  const actions = normalizeActions(payload.actions);
+  if (actions.length === 0) return { error: 'No valid actions provided' };
+
+  const simulated = applySimulationActions(baseline.breakdown, actions);
+  const baselineInputTokens = inferInputTokens(baseline.breakdown);
+  const simulatedInputTokens = inferSimulatedInputTokens(baseline.breakdown, simulated.breakdown, baselineInputTokens);
+  const outputTokens = baseline.breakdown.response_tokens?.output || 0;
+  const baselineCost = calculateCost(baselineInputTokens, outputTokens, baseline.breakdown.model);
+  const simulatedCost = calculateCost(simulatedInputTokens, outputTokens, baseline.breakdown.model);
+
+  return {
+    baseline: {
+      captureId: baseline.captureId,
+      sessionId: baseline.sessionId,
+      model: baseline.breakdown.model,
+      total_tokens: baseline.breakdown.total_tokens,
+      categories: summarizeCategories(baseline.breakdown),
+      cost: baselineCost,
+    },
+    simulated: {
+      model: baseline.breakdown.model,
+      total_tokens: simulated.breakdown.total_tokens,
+      categories: summarizeCategories(simulated.breakdown),
+      cost: simulatedCost,
+      actions: simulated.appliedActions,
+    },
+    delta: {
+      tokens: simulated.breakdown.total_tokens - baseline.breakdown.total_tokens,
+      tokens_saved: Math.max(0, baseline.breakdown.total_tokens - simulated.breakdown.total_tokens),
+      token_percent_saved: baseline.breakdown.total_tokens > 0
+        ? Math.round(((baseline.breakdown.total_tokens - simulated.breakdown.total_tokens) / baseline.breakdown.total_tokens) * 1000) / 10
+        : 0,
+      input_cost_delta: roundCurrency(simulatedCost.inputCost - baselineCost.inputCost),
+      total_cost_delta: roundCurrency(simulatedCost.totalCost - baselineCost.totalCost),
+      estimated_dollar_savings: roundCurrency(Math.max(0, baselineCost.totalCost - simulatedCost.totalCost)),
+    },
+  };
+}
+
+function resolveSimulationBaseline(storage, payload) {
+  if (payload && payload.breakdown) {
+    return {
+      breakdown: payload.breakdown,
+      captureId: payload.captureId || null,
+      sessionId: payload.sessionId || null,
+    };
+  }
+
+  if (!payload || !payload.captureId) return null;
+  const capture = storage.getCaptureDetail(payload.captureId);
+  if (!capture) return null;
+  if (payload.sessionId && capture.sessionId !== payload.sessionId) return null;
+
+  return {
+    breakdown: capture.breakdown,
+    captureId: capture.id,
+    sessionId: capture.sessionId,
+  };
+}
+
+function normalizeActions(actions) {
+  return (Array.isArray(actions) ? actions : [])
+    .map((action) => {
+      if (!action) return null;
+      if (typeof action === 'string') return { type: action };
+      if (typeof action === 'object' && action.type) return action;
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function applySimulationActions(breakdown, actions) {
+  const draft = JSON.parse(JSON.stringify(breakdown || {}));
+  const appliedActions = [];
+  if (!draft || typeof draft !== 'object') return { breakdown: null, appliedActions };
+
+  const categoryKeys = [
+    'system_prompts',
+    'tool_definitions',
+    'tool_calls',
+    'tool_results',
+    'assistant_text',
+    'user_text',
+    'thinking_blocks',
+    'media',
+  ];
+
+  for (const action of actions) {
+    const type = action.type;
+    let reduced = 0;
+
+    if (type === 'remove_tools') {
+      reduced = applyToolRemoval(draft, action);
+    } else if (type === 'trim_tool_results') {
+      reduced = applyToolResultTrim(draft, action);
+    } else if (type === 'compact_history') {
+      reduced = applyHistoryCompaction(draft, action);
+    } else if (type === 'shorten_system_prompt') {
+      reduced = applySystemPromptShortening(draft, action);
+    } else {
+      continue;
+    }
+
+    appliedActions.push({
+      type,
+      params: action.params || {},
+      estimatedTokenReduction: Math.max(0, Math.round(reduced)),
+    });
+  }
+
+  draft.total_tokens = categoryKeys.reduce((sum, key) => sum + (draft[key]?.tokens || 0), 0);
+  for (const key of categoryKeys) {
+    if (!draft[key]) continue;
+    draft[key].percentage = draft.total_tokens > 0
+      ? Math.round(((draft[key].tokens || 0) / draft.total_tokens) * 100)
+      : 0;
+  }
+
+  return { breakdown: draft, appliedActions };
+}
+
+function applyToolRemoval(breakdown, action) {
+  const category = breakdown.tool_definitions;
+  if (!category || !Array.isArray(category.content)) return 0;
+  const params = action.params || {};
+  const names = Array.isArray(params.names) ? new Set(params.names) : null;
+  const fallbackRatio = Number.isFinite(params.ratio) ? clamp(params.ratio, 0, 1) : 0.3;
+
+  let removed = 0;
+  if (names && names.size > 0) {
+    for (const tool of category.content) {
+      if (names.has(tool.name)) removed += tool.tokens || 0;
+    }
+  } else {
+    removed = Math.round((category.tokens || 0) * fallbackRatio);
+  }
+
+  category.tokens = Math.max(0, (category.tokens || 0) - removed);
+  return removed;
+}
+
+function applyToolResultTrim(breakdown, action) {
+  const category = breakdown.tool_results;
+  if (!category || !Array.isArray(category.content)) return 0;
+  const params = action.params || {};
+  const msgIndex = Number.isFinite(params.msgIndex) ? params.msgIndex : null;
+  const maxTokens = Number.isFinite(params.maxTokens) ? Math.max(0, params.maxTokens) : 1000;
+  const defaultRatio = Number.isFinite(params.ratio) ? clamp(params.ratio, 0, 1) : 0.35;
+
+  let removed = 0;
+  if (msgIndex !== null) {
+    for (const result of category.content) {
+      if (result.msgIndex === msgIndex && (result.tokens || 0) > maxTokens) {
+        removed += (result.tokens || 0) - maxTokens;
+      }
+    }
+  } else {
+    removed = Math.round((category.tokens || 0) * defaultRatio);
+  }
+
+  category.tokens = Math.max(0, (category.tokens || 0) - removed);
+  return removed;
+}
+
+function applyHistoryCompaction(breakdown, action) {
+  const params = action.params || {};
+  const ratio = Number.isFinite(params.ratio) ? clamp(params.ratio, 0, 1) : 0.25;
+  const targets = ['assistant_text', 'user_text', 'thinking_blocks', 'tool_results'];
+  let removed = 0;
+  for (const key of targets) {
+    if (!breakdown[key]) continue;
+    const delta = Math.round((breakdown[key].tokens || 0) * ratio);
+    breakdown[key].tokens = Math.max(0, (breakdown[key].tokens || 0) - delta);
+    removed += delta;
+  }
+  return removed;
+}
+
+function applySystemPromptShortening(breakdown, action) {
+  const params = action.params || {};
+  const ratio = Number.isFinite(params.ratio) ? clamp(params.ratio, 0, 1) : 0.2;
+  const category = breakdown.system_prompts;
+  if (!category) return 0;
+  const removed = Math.round((category.tokens || 0) * ratio);
+  category.tokens = Math.max(0, (category.tokens || 0) - removed);
+  return removed;
+}
+
+function summarizeCategories(breakdown) {
+  if (!breakdown) return {};
+  return {
+    system_prompts: breakdown.system_prompts?.tokens || 0,
+    tool_definitions: breakdown.tool_definitions?.tokens || 0,
+    tool_calls: breakdown.tool_calls?.tokens || 0,
+    tool_results: breakdown.tool_results?.tokens || 0,
+    assistant_text: breakdown.assistant_text?.tokens || 0,
+    user_text: breakdown.user_text?.tokens || 0,
+    thinking_blocks: breakdown.thinking_blocks?.tokens || 0,
+    media: breakdown.media?.tokens || 0,
+  };
+}
+
+function inferInputTokens(breakdown) {
+  const reported = breakdown?.response_tokens?.input || 0;
+  if (reported > 0) return reported;
+  return breakdown?.total_tokens || 0;
+}
+
+function inferSimulatedInputTokens(baseline, simulated, baselineInputTokens) {
+  const baseTotal = baseline?.total_tokens || 0;
+  const simTotal = simulated?.total_tokens || 0;
+  if (baseTotal <= 0) return baselineInputTokens;
+  const ratio = simTotal / baseTotal;
+  return Math.max(0, Math.round(baselineInputTokens * ratio));
+}
+
+function roundCurrency(value) {
+  return Math.round((value || 0) * 1_000_000) / 1_000_000;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function extractSessionCacheTokens(captures) {
