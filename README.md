@@ -39,6 +39,9 @@ PROXY_HOST=0.0.0.0 PROXY_ADVERTISE_HOST=localhost npm start
 
 # Optional: disable background analysis scheduler (Phase 5 architecture)
 CONTEXT_REVIEW_DISABLE_BACKGROUND_ANALYSIS=1 npm start
+
+# Optional: run with event-backed storage adapter
+CONTEXT_REVIEW_STORAGE_ADAPTER=event npm start
 ```
 
 Then point your LLM tool to the proxy:
@@ -166,6 +169,8 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - Analysis logic is split into `src/analysis/session-analysis.js` to keep API routing thin.
 - Background analysis caching runs in `src/analysis/background.js` and precomputes summary/CI windows.
 - Optional event-log mode (`CONTEXT_REVIEW_EVENT_LOG=1`) appends capture events to `data/events.ndjson` while preserving local-first `sessions.json` mode.
+- Recommended adapter toggle: `CONTEXT_REVIEW_STORAGE_ADAPTER=event` (`flat` remains default).
+- Migration path: `npm run migrate:event-log` seeds `events.ndjson` from existing `sessions.json`.
 
 ## Key Design Decisions
 

@@ -1,53 +1,48 @@
-const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { createStorageAdapter } = require('./adapters');
 
 const ALL_CATS = ['system_prompts', 'tool_definitions', 'tool_calls', 'tool_results', 'assistant_text', 'user_text', 'thinking_blocks', 'media'];
 
 class SessionStorage {
-  constructor() {
+  constructor(options = {}) {
     this.sessions = new Map();
     this.captures = [];
-    this.persistenceDisabled = process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE === '1';
-    this.eventLogEnabled = process.env.CONTEXT_REVIEW_EVENT_LOG === '1';
-    this.dataDir = process.env.CONTEXT_REVIEW_DATA_DIR || path.join(__dirname, '../../data');
+    this.persistenceDisabled = options.persistenceDisabled !== undefined
+      ? options.persistenceDisabled
+      : process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE === '1';
+    this.dataDir = options.dataDir || process.env.CONTEXT_REVIEW_DATA_DIR || path.join(__dirname, '../../data');
     this.dataFile = path.join(this.dataDir, 'sessions.json');
     this.eventFile = path.join(this.dataDir, 'events.ndjson');
+    const created = createStorageAdapter({
+      mode: options.adapterMode,
+      dataDir: this.dataDir,
+      dataFile: this.dataFile,
+      eventFile: this.eventFile,
+      persistenceDisabled: this.persistenceDisabled,
+    });
+    this.adapterMode = created.mode;
+    this.adapter = created.adapter;
     this.loadFromDisk();
   }
 
   loadFromDisk() {
-    try {
-      if (this.persistenceDisabled) return;
-      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
-      if (fs.existsSync(this.dataFile)) {
-        const data = JSON.parse(fs.readFileSync(this.dataFile, 'utf8'));
-        if (data.sessions) {
-          for (const [id, session] of Object.entries(data.sessions)) {
-            this.sessions.set(id, session);
-          }
-        }
-        if (data.captures) {
-          this.captures = data.captures;
-        }
+    if (this.persistenceDisabled) return;
+    const data = this.adapter.load();
+    if (data.sessions) {
+      for (const [id, session] of Object.entries(data.sessions)) {
+        this.sessions.set(id, session);
       }
-    } catch (e) {
-      console.error('Failed to load session data:', e.message);
     }
+    if (Array.isArray(data.captures)) this.captures = data.captures;
   }
 
   saveToDisk() {
-    try {
-      if (this.persistenceDisabled) return;
-      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
-      const data = {
-        sessions: Object.fromEntries(this.sessions),
-        captures: this.captures.slice(-1000),
-      };
-      fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
-    } catch (e) {
-      console.error('Failed to save session data:', e.message);
-    }
+    if (this.persistenceDisabled) return;
+    this.adapter.save({
+      sessions: Object.fromEntries(this.sessions),
+      captures: this.captures.slice(-1000),
+    });
   }
 
   addCapture(capture, breakdown) {
@@ -136,14 +131,8 @@ class SessionStorage {
     this.appendEvent({
       type: 'capture_added',
       timestamp: capture.timestamp,
-      sessionId,
-      captureId,
-      provider: capture.provider,
-      model: entry.model,
-      project: entry.project || session.project || 'default',
-      user: entry.user || session.user || 'anonymous',
-      totalTokens: breakdown?.total_tokens || 0,
-      responseTokens: breakdown?.response_tokens?.output || 0,
+      entry,
+      session,
     });
     return { captureId, sessionId };
   }
@@ -209,16 +198,12 @@ class SessionStorage {
     this.sessions.clear();
     this.captures = [];
     this.saveToDisk();
+    this.appendEvent({ type: 'clear_all', timestamp: Date.now() });
   }
 
   appendEvent(event) {
-    try {
-      if (!this.eventLogEnabled) return;
-      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
-      fs.appendFileSync(this.eventFile, JSON.stringify(event) + '\n');
-    } catch (e) {
-      console.error('Failed to append event log:', e.message);
-    }
+    if (this.persistenceDisabled) return;
+    this.adapter.appendEvent(event);
   }
 
   exportLHAR(sessionId) {
