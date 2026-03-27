@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const { URL } = require('url');
 
 process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '1';
 delete require.cache[require.resolve('../src/storage/storage')];
@@ -53,13 +54,17 @@ function createCapture() {
   };
 }
 
-function createCaptureVariant({ timestamp, userText, toolResult }) {
+function createCaptureVariant({ timestamp, userText, toolResult, headers }) {
   const base = createCapture();
   return {
     ...base,
     timestamp,
     request: {
       ...base.request,
+      headers: {
+        ...base.request.headers,
+        ...(headers || {}),
+      },
       body: {
         ...base.request.body,
         messages: [
@@ -92,13 +97,15 @@ function createApp(storage) {
 
 function requestApp(app, { method = 'GET', url, body }) {
   return new Promise((resolve, reject) => {
+    const parsed = new URL(url, 'http://localhost');
+    const query = Object.fromEntries(parsed.searchParams.entries());
     const req = {
       method,
-      url,
+      url: `${parsed.pathname}${parsed.search}`,
       headers: body !== undefined ? { 'content-type': 'application/json' } : {},
       body,
       _body: body !== undefined,
-      query: {},
+      query,
       params: {},
       on(event, handler) {
         if (event === 'data') return this;
@@ -255,4 +262,84 @@ test('api reports summary exposes top waste drivers and expensive sessions', asy
   assert.ok(Array.isArray(summaryRes.body.topWasteDrivers));
   assert.ok(Array.isArray(summaryRes.body.mostExpensiveSessions));
   assert.ok(summaryRes.body.sessionCount >= 1);
+});
+
+test('api sessions supports team filters by project user and agent', async () => {
+  const storage = new SessionStorage();
+  const alpha = createCaptureVariant({
+    timestamp: Date.now() - 2000,
+    userText: 'Alpha request',
+    toolResult: '<div>alpha</div>',
+    headers: {
+      'x-context-review-project': 'alpha',
+      'x-context-review-user': 'alice',
+      'user-agent': 'codex/1.0',
+    },
+  });
+  const beta = createCaptureVariant({
+    timestamp: Date.now() - 1000,
+    userText: 'Beta request',
+    toolResult: '<div>beta</div>',
+    headers: {
+      'x-context-review-project': 'beta',
+      'x-context-review-user': 'bob',
+      'user-agent': 'aider/0.50',
+    },
+  });
+  storage.addCapture(alpha, parseRequest(alpha));
+  storage.addCapture(beta, parseRequest(beta));
+  const app = createApp(storage);
+
+  const byProject = await requestApp(app, { url: '/api/sessions?project=alpha' });
+  assert.equal(byProject.statusCode, 200);
+  assert.equal(byProject.body.length, 1);
+  assert.equal(byProject.body[0].project, 'alpha');
+
+  const byUser = await requestApp(app, { url: '/api/sessions?user=bob' });
+  assert.equal(byUser.statusCode, 200);
+  assert.equal(byUser.body.length, 1);
+  assert.equal(byUser.body[0].user, 'bob');
+
+  const byAgent = await requestApp(app, { url: '/api/sessions?agent=aider' });
+  assert.equal(byAgent.statusCode, 200);
+  assert.equal(byAgent.body.length, 1);
+});
+
+test('api ci summary/check and snapshot endpoints are machine-readable', async () => {
+  const storage = new SessionStorage();
+  const projectCapture = createCaptureVariant({
+    timestamp: Date.now() - 500,
+    userText: `CI run ${'R'.repeat(2600)}`,
+    toolResult: `<div>${'S'.repeat(2600)}</div>`,
+    headers: {
+      'x-context-review-project': 'ci-project',
+      'x-context-review-user': 'ci-bot',
+    },
+  });
+  const added = storage.addCapture(projectCapture, parseRequest(projectCapture));
+  const app = createApp(storage);
+
+  const ciSummary = await requestApp(app, { url: '/api/ci/summary?days=7' });
+  assert.equal(ciSummary.statusCode, 200);
+  assert.ok(ciSummary.body.current);
+  assert.ok(Object.prototype.hasOwnProperty.call(ciSummary.body.regression, 'avgInputTokensDeltaPct'));
+
+  const ciCheck = await requestApp(app, {
+    method: 'POST',
+    url: '/api/ci/check',
+    body: { days: 7, maxInputInflationPct: 1000, maxCostInflationPct: 1000, maxUnusedToolsIncreasePct: 1000, maxToolDefinitionPct: 1000 },
+  });
+  assert.equal(ciCheck.statusCode, 200);
+  assert.equal(typeof ciCheck.body.passed, 'boolean');
+  assert.ok(Array.isArray(ciCheck.body.failures));
+
+  const snapshotJson = await requestApp(app, { url: `/api/reports/session/${added.sessionId}/snapshot` });
+  assert.equal(snapshotJson.statusCode, 200);
+  assert.equal(snapshotJson.body.session.project, 'ci-project');
+  assert.ok(snapshotJson.body.trends);
+
+  const snapshotMd = await requestApp(app, { url: `/api/reports/session/${added.sessionId}/snapshot?format=md` });
+  assert.equal(snapshotMd.statusCode, 200);
+  assert.equal(typeof snapshotMd.body, 'string');
+  assert.ok(snapshotMd.body.includes('# Context Review Snapshot'));
 });

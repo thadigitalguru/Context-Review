@@ -40,7 +40,7 @@ function createAPIRouter(storage) {
   });
 
   router.get('/sessions', (req, res) => {
-    const sessions = storage.getSessions();
+    const sessions = filterSessions(storage.getSessions(), req.query);
     const enriched = sessions.map(session => {
       const cacheTokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
       const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
@@ -81,6 +81,8 @@ function createAPIRouter(storage) {
       provider: c.provider,
       model: c.model,
       agent: c.agent,
+      project: c.project || session.project || 'default',
+      user: c.user || session.user || 'anonymous',
       isStreaming: c.isStreaming,
       breakdown: c.breakdown ? {
         total_tokens: c.breakdown.total_tokens,
@@ -193,6 +195,31 @@ function createAPIRouter(storage) {
     res.json(summary);
   });
 
+  router.get('/reports/session/:id/snapshot', (req, res) => {
+    const session = storage.getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const captures = storage.getSessionCaptures(req.params.id);
+    const findings = generateFindings(session, captures);
+    const trends = buildSessionTrends(session, captures, findings);
+    const snapshot = buildSessionSnapshot(session, captures, findings, trends);
+    if (req.query.format === 'md') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      return res.send(formatSnapshotMarkdown(snapshot));
+    }
+    return res.json(snapshot);
+  });
+
+  router.get('/ci/summary', (req, res) => {
+    const days = Number.isFinite(Number(req.query.days)) ? Math.max(1, Number(req.query.days)) : 7;
+    const summary = buildCISummary(storage, days);
+    res.json(summary);
+  });
+
+  router.post('/ci/check', (req, res) => {
+    const report = runCICheck(storage, req.body || {});
+    res.status(report.passed ? 200 : 422).json(report);
+  });
+
   router.get('/sessions/:id/export', (req, res) => {
     const lhar = storage.exportLHAR(req.params.id);
     if (!lhar) return res.status(404).json({ error: 'Session not found' });
@@ -203,7 +230,7 @@ function createAPIRouter(storage) {
   });
 
   router.get('/stats', (req, res) => {
-    const sessions = storage.getSessions();
+    const sessions = filterSessions(storage.getSessions(), req.query);
     let totalRequests = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -464,6 +491,222 @@ function roundCurrency(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function filterSessions(sessions, query) {
+  const provider = query.provider ? String(query.provider).toLowerCase() : null;
+  const model = query.model ? String(query.model).toLowerCase() : null;
+  const project = query.project ? String(query.project).toLowerCase() : null;
+  const user = query.user ? String(query.user).toLowerCase() : null;
+  const agent = query.agent ? String(query.agent).toLowerCase() : null;
+  const fromTs = parseTimeQuery(query.from);
+  const toTs = parseTimeQuery(query.to);
+
+  return sessions.filter((session) => {
+    if (provider && String(session.provider || '').toLowerCase() !== provider) return false;
+    if (model && !String(session.model || '').toLowerCase().includes(model)) return false;
+    if (project && String(session.project || 'default').toLowerCase() !== project) return false;
+    if (user && String(session.user || 'anonymous').toLowerCase() !== user) return false;
+    if (agent && !sessionHasAgent(session, agent)) return false;
+    if (fromTs && session.lastActivity < fromTs) return false;
+    if (toTs && session.lastActivity > toTs) return false;
+    return true;
+  });
+}
+
+function parseTimeQuery(value) {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sessionHasAgent(session, agentFilter) {
+  const normalized = String(agentFilter).toLowerCase();
+  const entries = Object.entries(session.agents || {});
+  if (entries.length === 0) return normalized === 'unknown';
+  return entries.some(([id, data]) => {
+    return String(id).toLowerCase().includes(normalized) || String(data?.name || '').toLowerCase().includes(normalized);
+  });
+}
+
+function buildSessionSnapshot(session, captures, findings, trends) {
+  const cacheTokens = extractSessionCacheTokens(captures);
+  const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
+  const topFindings = (findings || []).slice(0, 5).map((finding) => ({
+    title: finding.title,
+    category: finding.category,
+    severity: finding.severity,
+    estimatedSavingsTokens: finding.estimatedSavings?.tokens || 0,
+    recommendation: finding.recommendation?.summary || finding.suggestion || '',
+  }));
+
+  return {
+    generatedAt: Date.now(),
+    session: {
+      id: session.id,
+      provider: session.provider,
+      model: session.model,
+      project: session.project || 'default',
+      user: session.user || 'anonymous',
+      requestCount: session.requestCount,
+      totalInputTokens: session.totalInputTokens,
+      totalOutputTokens: session.totalOutputTokens,
+      totalCost: cost.totalCost,
+      startTime: session.startTime,
+      lastActivity: session.lastActivity,
+    },
+    trends: {
+      growth: trends.growth,
+      forecast: trends.forecast,
+      alerts: trends.alerts,
+      topContributors: trends.topContributors,
+    },
+    findings: topFindings,
+  };
+}
+
+function formatSnapshotMarkdown(snapshot) {
+  const lines = [];
+  const s = snapshot.session;
+  lines.push(`# Context Review Snapshot`);
+  lines.push(``);
+  lines.push(`- Session: \`${s.id}\``);
+  lines.push(`- Provider/Model: ${s.provider} / ${s.model}`);
+  lines.push(`- Project/User: ${s.project} / ${s.user}`);
+  lines.push(`- Requests: ${s.requestCount}`);
+  lines.push(`- Input Tokens: ${s.totalInputTokens}`);
+  lines.push(`- Output Tokens: ${s.totalOutputTokens}`);
+  lines.push(`- Cost: $${Number(s.totalCost || 0).toFixed(4)}`);
+  lines.push(``);
+  lines.push(`## Forecast`);
+  lines.push(`- Turns remaining: ${snapshot.trends.forecast.turnsRemaining === null ? 'N/A' : snapshot.trends.forecast.turnsRemaining}`);
+  lines.push(`- Remaining tokens: ${snapshot.trends.forecast.remainingTokens}`);
+  lines.push(`- Growth trajectory: ${snapshot.trends.forecast.trajectoryTokensPerTurn} tokens/turn`);
+  lines.push(``);
+  lines.push(`## Alerts`);
+  if ((snapshot.trends.alerts || []).length === 0) {
+    lines.push(`- None`);
+  } else {
+    for (const alert of snapshot.trends.alerts) lines.push(`- [${alert.severity}] ${alert.message}`);
+  }
+  lines.push(``);
+  lines.push(`## Top Findings`);
+  if ((snapshot.findings || []).length === 0) {
+    lines.push(`- None`);
+  } else {
+    for (const finding of snapshot.findings) {
+      lines.push(`- [${finding.severity}] ${finding.title} (save ~${finding.estimatedSavingsTokens}t)`);
+    }
+  }
+  lines.push(``);
+  return lines.join('\n');
+}
+
+function buildCISummary(storage, days) {
+  const current = buildMetricsWindow(storage, days, 0);
+  const previous = buildMetricsWindow(storage, days, 1);
+  const regression = {
+    avgInputTokensDeltaPct: percentDelta(previous.avgInputTokensPerRequest, current.avgInputTokensPerRequest),
+    avgCostDeltaPct: percentDelta(previous.avgCostPerRequest, current.avgCostPerRequest),
+    unusedToolFindingsDeltaPct: percentDelta(previous.unusedToolFindingsPerSession, current.unusedToolFindingsPerSession),
+    avgToolDefinitionPctDelta: roundMetric(current.avgToolDefinitionPct - previous.avgToolDefinitionPct),
+  };
+  return {
+    generatedAt: Date.now(),
+    windowDays: days,
+    current,
+    previous,
+    regression,
+  };
+}
+
+function runCICheck(storage, payload) {
+  const days = Number.isFinite(Number(payload.days)) ? Math.max(1, Number(payload.days)) : 7;
+  const summary = buildCISummary(storage, days);
+  const thresholds = {
+    maxInputInflationPct: Number.isFinite(Number(payload.maxInputInflationPct)) ? Number(payload.maxInputInflationPct) : 15,
+    maxCostInflationPct: Number.isFinite(Number(payload.maxCostInflationPct)) ? Number(payload.maxCostInflationPct) : 20,
+    maxUnusedToolsIncreasePct: Number.isFinite(Number(payload.maxUnusedToolsIncreasePct)) ? Number(payload.maxUnusedToolsIncreasePct) : 15,
+    maxToolDefinitionPct: Number.isFinite(Number(payload.maxToolDefinitionPct)) ? Number(payload.maxToolDefinitionPct) : 35,
+  };
+
+  const failures = [];
+  if (summary.regression.avgInputTokensDeltaPct > thresholds.maxInputInflationPct) {
+    failures.push(`Input tokens/request grew by ${summary.regression.avgInputTokensDeltaPct}% (threshold ${thresholds.maxInputInflationPct}%)`);
+  }
+  if (summary.regression.avgCostDeltaPct > thresholds.maxCostInflationPct) {
+    failures.push(`Cost/request grew by ${summary.regression.avgCostDeltaPct}% (threshold ${thresholds.maxCostInflationPct}%)`);
+  }
+  if (summary.regression.unusedToolFindingsDeltaPct > thresholds.maxUnusedToolsIncreasePct) {
+    failures.push(`Unused-tool findings/session grew by ${summary.regression.unusedToolFindingsDeltaPct}% (threshold ${thresholds.maxUnusedToolsIncreasePct}%)`);
+  }
+  if (summary.current.avgToolDefinitionPct > thresholds.maxToolDefinitionPct) {
+    failures.push(`Average tool-definition share is ${summary.current.avgToolDefinitionPct}% (threshold ${thresholds.maxToolDefinitionPct}%)`);
+  }
+
+  return {
+    passed: failures.length === 0,
+    failures,
+    thresholds,
+    summary,
+  };
+}
+
+function buildMetricsWindow(storage, days, offsetWindow) {
+  const now = Date.now();
+  const windowMs = days * 24 * 60 * 60 * 1000;
+  const end = now - (offsetWindow * windowMs);
+  const start = end - windowMs;
+  const sessions = storage.getSessions().filter((session) => session.lastActivity >= start && session.lastActivity < end);
+
+  let totalRequests = 0;
+  let totalInputTokens = 0;
+  let totalCost = 0;
+  let toolDefinitionPctSum = 0;
+  let toolDefinitionPctSamples = 0;
+  let unusedToolFindings = 0;
+
+  for (const session of sessions) {
+    totalRequests += session.requestCount;
+    totalInputTokens += session.totalInputTokens;
+    const captures = storage.getSessionCaptures(session.id);
+    const cacheTokens = extractSessionCacheTokens(captures);
+    const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
+    totalCost += cost.totalCost;
+    const findings = generateFindings(session, captures);
+    unusedToolFindings += findings.filter((finding) => finding.category === 'tool_definitions' && Array.isArray(finding.tools)).length;
+    for (const capture of captures) {
+      const total = capture.breakdown?.total_tokens || 0;
+      const defs = capture.breakdown?.tool_definitions?.tokens || 0;
+      if (total > 0) {
+        toolDefinitionPctSum += (defs / total) * 100;
+        toolDefinitionPctSamples += 1;
+      }
+    }
+  }
+
+  return {
+    start,
+    end,
+    sessionCount: sessions.length,
+    requestCount: totalRequests,
+    avgInputTokensPerRequest: totalRequests > 0 ? Math.round(totalInputTokens / totalRequests) : 0,
+    avgCostPerRequest: totalRequests > 0 ? roundMetric(totalCost / totalRequests) : 0,
+    unusedToolFindingsPerSession: sessions.length > 0 ? roundMetric(unusedToolFindings / sessions.length) : 0,
+    avgToolDefinitionPct: toolDefinitionPctSamples > 0 ? roundMetric(toolDefinitionPctSum / toolDefinitionPctSamples) : 0,
+  };
+}
+
+function percentDelta(previous, current) {
+  if (!previous && !current) return 0;
+  if (!previous && current) return 100;
+  return roundMetric(((current - previous) / previous) * 100);
+}
+
+function roundMetric(value) {
+  return Math.round((value || 0) * 100) / 100;
 }
 
 function buildSessionTrends(session, captures, findings) {

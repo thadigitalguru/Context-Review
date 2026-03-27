@@ -50,6 +50,7 @@ class SessionStorage {
 
   addCapture(capture, breakdown) {
     const captureId = uuidv4();
+    const context = extractContextIdentity(capture.request?.headers || {});
     const sessionId = this.resolveSession(capture, breakdown);
 
     const entry = {
@@ -59,6 +60,8 @@ class SessionStorage {
       provider: capture.provider,
       model: breakdown ? breakdown.model : 'unknown',
       agent: breakdown ? breakdown.agent : { id: 'unknown', name: 'Unknown' },
+      project: context.project,
+      user: context.user,
       isStreaming: capture.isStreaming,
       breakdown,
       request: {
@@ -75,6 +78,8 @@ class SessionStorage {
     const session = this.sessions.get(sessionId);
     session.lastActivity = capture.timestamp;
     session.requestCount++;
+    session.project = session.project || context.project;
+    session.user = session.user || context.user;
     if (breakdown && breakdown.model && breakdown.model !== 'unknown') {
       session.model = breakdown.model;
     }
@@ -133,9 +138,11 @@ class SessionStorage {
     const now = capture.timestamp;
     const agent = breakdown ? breakdown.agent : { id: 'unknown', name: 'Unknown' };
     const provider = capture.provider;
+    const context = extractContextIdentity(capture.request?.headers || {});
 
     for (const [id, session] of this.sessions) {
       if (session.provider === provider &&
+        sameContext(session, context) &&
         sameAgent(session, agent) &&
         (now - session.lastActivity) < 30 * 60 * 1000) {
         return id;
@@ -154,6 +161,8 @@ class SessionStorage {
       agents: {},
       turnBreakdowns: [],
       model: breakdown ? breakdown.model : 'unknown',
+      project: context.project,
+      user: context.user,
     });
 
     return sessionId;
@@ -203,6 +212,8 @@ class SessionStorage {
           provider: c.provider,
           model: c.model,
           agent: c.agent,
+          project: c.project || session.project || 'default',
+          user: c.user || session.user || 'anonymous',
           breakdown: c.breakdown,
           request: c.request,
           response: c.response,
@@ -215,6 +226,8 @@ class SessionStorage {
           requestCount: session.requestCount,
           totalInputTokens: session.totalInputTokens,
           totalOutputTokens: session.totalOutputTokens,
+          project: session.project || 'default',
+          user: session.user || 'anonymous',
           agents: session.agents,
         },
       },
@@ -226,6 +239,32 @@ function sameAgent(session, agent) {
   const sessionAgentIds = Object.keys(session.agents || {});
   if (sessionAgentIds.length === 0) return agent.id === 'unknown';
   return sessionAgentIds.includes(agent.id);
+}
+
+function sameContext(session, context) {
+  const sessionProject = session.project || 'default';
+  const sessionUser = session.user || 'anonymous';
+  const incomingProject = context.project || 'default';
+  const incomingUser = context.user || 'anonymous';
+  return sessionProject === incomingProject && sessionUser === incomingUser;
+}
+
+function extractContextIdentity(headers) {
+  const project = getHeader(headers, ['x-context-review-project', 'x-cr-project', 'x-project-id']) || 'default';
+  const user = getHeader(headers, ['x-context-review-user', 'x-cr-user', 'x-user-id']) || 'anonymous';
+  return { project, user };
+}
+
+function getHeader(headers, keys) {
+  if (!headers || typeof headers !== 'object') return '';
+  for (const key of keys) {
+    if (headers[key]) return String(headers[key]).trim();
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    const normalized = String(name).toLowerCase();
+    if (keys.includes(normalized)) return String(value).trim();
+  }
+  return '';
 }
 
 function computeContextDiff(prevBreakdown, currentBreakdown) {

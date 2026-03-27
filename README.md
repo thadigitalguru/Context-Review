@@ -48,6 +48,15 @@ export GOOGLE_API_BASE_URL=http://localhost:8080
 
 Use your tool normally. Every API call is captured and analyzed. Open `http://localhost:5000` (or your `DASHBOARD_PORT`) to see the dashboard.
 
+### Team Context Headers (Optional)
+
+For team/project segmentation, send these headers through your tool/proxy client:
+
+- `x-context-review-project: <project-name>`
+- `x-context-review-user: <user-or-agent-id>`
+
+Context Review will group and filter sessions by these identities.
+
 ## What It Shows
 
 ### 8-Category Context Breakdown
@@ -134,6 +143,14 @@ public/
 ## LHAR Export
 
 Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON format containing every API call's breakdown, timing, and session metadata.
+
+## Team + CI APIs
+
+- `GET /api/sessions?project=<id>&user=<id>&agent=<name>&provider=<name>&model=<contains>&from=<ts|iso>&to=<ts|iso>`
+- `GET /api/ci/summary?days=7` machine-readable metrics for current vs previous windows
+- `POST /api/ci/check` regression gate endpoint (`422` on threshold failures)
+- `GET /api/reports/session/:id/snapshot` JSON shareable summary
+- `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
 
 ## Key Design Decisions
 
