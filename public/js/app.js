@@ -479,6 +479,7 @@ function renderOpsPanel() {
           <button class="finding-action-btn" onclick="downloadOpsArtifact('storage-benchmark')">Download Replay Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('query-benchmark')">Download Query Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('analysis-benchmark')">Download Analysis Benchmark</button>
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('long-horizon-benchmark')">Download Long-Horizon Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('api-slo')">Download API SLO</button>
         </div>
       </div>

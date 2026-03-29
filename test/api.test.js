@@ -502,6 +502,7 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(typeof statusRes.body.benchmarks.config.storageReplayMaxMs, 'number');
   assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'storageReplay'));
   assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'analysisPerformance'));
+  assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'longHorizonPerformance'));
 
   const healthRes = await requestApp(app, { url: '/api/health/storage' });
   assert.equal(healthRes.statusCode, 200);

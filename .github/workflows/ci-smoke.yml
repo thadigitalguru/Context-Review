@@ -41,6 +41,9 @@ jobs:
       - name: Analysis Benchmark Gate
         run: npm run ci:analysis-benchmark
 
+      - name: Long Horizon Benchmark Gate
+        run: npm run ci:long-horizon-benchmark
+
       - name: API SLO Gate
         run: npm run ci:api-slo
 
@@ -74,6 +77,14 @@ jobs:
         with:
           name: analysis-benchmark
           path: artifacts/analysis-benchmark.json
+          if-no-files-found: warn
+
+      - name: Upload Long Horizon Benchmark Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-horizon-benchmark
+          path: artifacts/long-horizon-benchmark.json
           if-no-files-found: warn
 
       - name: Upload API SLO Artifact

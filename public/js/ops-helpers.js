@@ -38,6 +38,15 @@
       });
     }
 
+    const longHorizonBench = opsSummary.storage?.benchmarks?.latest?.longHorizonPerformance;
+    if (longHorizonBench && longHorizonBench.pass === false) {
+      alerts.push({
+        severity: 'warning',
+        title: 'Long-Horizon Benchmark Failed',
+        text: `Filter ${longHorizonBench.timings?.filterMs}ms, report ${longHorizonBench.timings?.reportMs}ms, compare ${longHorizonBench.timings?.compareMs}ms, CI check ${longHorizonBench.timings?.ciCheckMs}ms exceeded thresholds.`,
+      });
+    }
+
     const apiSlo = opsSummary.storage?.benchmarks?.latest?.apiSlo;
     if (apiSlo && apiSlo.pass === false) {
       alerts.push({
@@ -63,6 +72,9 @@
     }
     if (type === 'analysis-benchmark') {
       return { payload: latest.analysisPerformance || null, filename: 'analysis-benchmark.json' };
+    }
+    if (type === 'long-horizon-benchmark') {
+      return { payload: latest.longHorizonPerformance || null, filename: 'long-horizon-benchmark.json' };
     }
     if (type === 'api-slo') {
       return { payload: latest.apiSlo || null, filename: 'api-slo.json' };

@@ -15,6 +15,7 @@ function main() {
     const replayBench = status.benchmarks?.latest?.storageReplay;
     const queryBench = status.benchmarks?.latest?.queryPerformance;
     const analysisBench = status.benchmarks?.latest?.analysisPerformance;
+    const longHorizonBench = status.benchmarks?.latest?.longHorizonPerformance;
     const apiSlo = status.benchmarks?.latest?.apiSlo;
 
     const failures = [];
@@ -22,6 +23,7 @@ function main() {
     if (replayBench && replayBench.pass === false) failures.push('storage replay benchmark failed');
     if (queryBench && queryBench.pass === false) failures.push('query benchmark failed');
     if (analysisBench && analysisBench.pass === false) failures.push('analysis benchmark failed');
+    if (longHorizonBench && longHorizonBench.pass === false) failures.push('long-horizon benchmark failed');
     if (apiSlo && apiSlo.pass === false) failures.push('api slo benchmark failed');
 
     console.log(JSON.stringify({

@@ -263,6 +263,14 @@ npm run ci:analysis-benchmark
 
 This command benchmarks report generation, CI summary generation, and per-session trend analysis. It fails on threshold regressions (`CI_ANALYSIS_BENCH_MAX_REPORT_MS`, `CI_ANALYSIS_BENCH_MAX_CI_MS`, `CI_ANALYSIS_BENCH_MAX_TRENDS_MS`) and writes `artifacts/analysis-benchmark.json`.
 
+For CI long-horizon (30d+) workload governance:
+
+```bash
+npm run ci:long-horizon-benchmark
+```
+
+This command seeds 30d+ synthetic history (default 45 days) and benchmarks filter/report/cross-session-compare/CI-check paths. It fails on baseline budget regressions (`CI_LONG_HORIZON_BENCH_MAX_FILTER_MS`, `CI_LONG_HORIZON_BENCH_MAX_REPORT_MS`, `CI_LONG_HORIZON_BENCH_MAX_COMPARE_MS`, `CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS`) and writes `artifacts/long-horizon-benchmark.json`.
+
 For API response SLO governance:
 
 ```bash

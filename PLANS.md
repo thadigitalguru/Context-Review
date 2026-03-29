@@ -73,10 +73,11 @@ Completed highlights:
   - startup integrity checks + auto-recovery
   - storage observability (`/api/storage/status`, `/api/health/storage`) and CI health gate script
   - analysis-path CI benchmark gate (`ci:analysis-benchmark`) and benchmark artifact reporting
+  - long-horizon CI benchmark gate (`ci:long-horizon-benchmark`) with baseline budget thresholds
 
 Remaining focus areas:
 
-- performance profiling for long event logs and large session sets
+- performance budget tuning from real-world CI baseline drift over long horizons
 - operator drills for recovery/rollback validation in production-like environments
 - multi-session comparison drill-down filters and navigation polish
 
@@ -385,7 +386,7 @@ The architecture supports growth without losing the simplicity of the current MV
 
 Current next queue:
 
-1. Add long-horizon load benchmarks (30d+ synthetic history) and publish baseline trend budgets in CI.
+1. Calibrate long-horizon CI benchmark budgets against repository baseline over multiple CI runs.
 2. Add cross-session comparison drill-down UX (click-through into filtered sessions by selected group).
 3. Add operator recovery drill script and checklist automation for backup replay validation.
 4. Add parser schema migration test vectors for future `2.x` forward-compatibility planning.
