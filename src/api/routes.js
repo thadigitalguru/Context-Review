@@ -16,6 +16,16 @@ const {
 function createAPIRouter(storage, options = {}) {
   const router = express.Router();
   const analysisScheduler = options.analysisScheduler || null;
+  const latencyStore = createLatencyStore();
+  router.use((req, res, next) => {
+    const start = process.hrtime.bigint();
+    res.on('finish', () => {
+      const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+      const path = (req.originalUrl || req.url || '').split('?')[0];
+      latencyStore.record(req.method, path, res.statusCode, elapsedMs);
+    });
+    next();
+  });
   const authMiddleware = createAuthMiddleware(options.auth || {});
   router.use(authMiddleware);
 
@@ -404,8 +414,13 @@ function createAPIRouter(storage, options = {}) {
         storage: degraded ? 'degraded' : 'healthy',
       },
       storage: storageStatus,
+      latency: latencyStore.snapshot(),
       ci,
     });
+  });
+
+  router.get('/ops/latency', (req, res) => {
+    return res.json(latencyStore.snapshot());
   });
 
   router.post('/storage/compact', requireRole('admin'), (req, res) => {
@@ -742,6 +757,60 @@ function applyAuthScopeToHeaders(auth, headers) {
   }
 
   return merged;
+}
+
+function createLatencyStore() {
+  const byRoute = new Map();
+  const startedAt = Date.now();
+  const maxSamples = 200;
+
+  return {
+    record(method, path, statusCode, elapsedMs) {
+      const key = `${method} ${path}`;
+      const current = byRoute.get(key) || { count: 0, errors: 0, maxMs: 0, totalMs: 0, samples: [] };
+      current.count += 1;
+      current.totalMs += elapsedMs;
+      if (statusCode >= 500) current.errors += 1;
+      if (elapsedMs > current.maxMs) current.maxMs = elapsedMs;
+      current.samples.push(elapsedMs);
+      if (current.samples.length > maxSamples) current.samples.shift();
+      byRoute.set(key, current);
+    },
+    snapshot() {
+      const routes = [...byRoute.entries()].map(([route, stats]) => {
+        const p50 = percentile(stats.samples, 50);
+        const p95 = percentile(stats.samples, 95);
+        const p99 = percentile(stats.samples, 99);
+        return {
+          route,
+          count: stats.count,
+          errors: stats.errors,
+          avgMs: roundLatency(stats.count > 0 ? stats.totalMs / stats.count : 0),
+          maxMs: roundLatency(stats.maxMs),
+          p50Ms: p50,
+          p95Ms: p95,
+          p99Ms: p99,
+        };
+      }).sort((a, b) => b.p95Ms - a.p95Ms || b.count - a.count);
+      return {
+        startedAt,
+        generatedAt: Date.now(),
+        routeCount: routes.length,
+        routes,
+      };
+    },
+  };
+}
+
+function percentile(values, p) {
+  if (!Array.isArray(values) || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
+  return roundLatency(sorted[idx]);
+}
+
+function roundLatency(value) {
+  return Math.round((value || 0) * 1000) / 1000;
 }
 
 module.exports = { createAPIRouter };

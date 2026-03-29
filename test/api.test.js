@@ -504,6 +504,12 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(typeof opsRes.body.generatedAt, 'number');
   assert.equal(typeof opsRes.body.health.storage, 'string');
   assert.ok(opsRes.body.storage);
+  assert.ok(opsRes.body.latency);
+  assert.ok(Array.isArray(opsRes.body.latency.routes));
+
+  const latencyRes = await requestApp(app, { url: '/api/ops/latency' });
+  assert.equal(latencyRes.statusCode, 200);
+  assert.ok(Array.isArray(latencyRes.body.routes));
 
   const dryRunRes = await requestApp(app, {
     method: 'POST',
@@ -527,6 +533,10 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(maintenanceRes.statusCode, 200);
   assert.equal(typeof maintenanceRes.body.reason, 'string');
   assert.ok(Object.prototype.hasOwnProperty.call(maintenanceRes.body, 'compacted'));
+
+  const statusAfterMaintenance = await requestApp(app, { url: '/api/storage/status' });
+  assert.equal(statusAfterMaintenance.statusCode, 200);
+  assert.ok(Array.isArray(statusAfterMaintenance.body.maintenance.history));
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });

@@ -1,4 +1,5 @@
 const API = '/api';
+const opsHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsHelpers) ? window.ContextReviewOpsHelpers : null;
 let state = {
   sessions: [],
   currentSessionId: null,
@@ -409,43 +410,7 @@ function renderOverview(area) {
 function renderOpsAlerts() {
   const ops = state.opsSummary;
   if (!ops || !ops.storage) return '';
-
-  const alerts = [];
-  const storageHealth = ops.health?.storage || 'unknown';
-  if (storageHealth !== 'healthy') {
-    alerts.push({
-      severity: 'critical',
-      title: 'Storage Degraded',
-      text: ops.storage?.eventLog?.integrity?.reason || 'Storage health endpoint reports degraded mode.',
-    });
-  }
-
-  const replayBench = ops.storage?.benchmarks?.latest?.storageReplay;
-  if (replayBench && replayBench.pass === false) {
-    alerts.push({
-      severity: 'warning',
-      title: 'Replay Benchmark Failed',
-      text: `Replay ${replayBench.replayMs}ms exceeds threshold ${replayBench.maxReplayMs}ms.`,
-    });
-  }
-
-  const queryBench = ops.storage?.benchmarks?.latest?.queryPerformance;
-  if (queryBench && queryBench.pass === false) {
-    alerts.push({
-      severity: 'warning',
-      title: 'Query Benchmark Failed',
-      text: `Filter ${queryBench.timings?.filterMs}ms, report ${queryBench.timings?.reportMs}ms exceeded thresholds.`,
-    });
-  }
-
-  const apiSlo = ops.storage?.benchmarks?.latest?.apiSlo;
-  if (apiSlo && apiSlo.pass === false) {
-    alerts.push({
-      severity: 'warning',
-      title: 'API SLO Breach',
-      text: `p95 sessions ${apiSlo.p95?.sessions}ms or report ${apiSlo.p95?.report}ms over threshold.`,
-    });
-  }
+  const alerts = opsHelpers ? opsHelpers.deriveOpsAlerts(ops) : [];
 
   if (alerts.length === 0) return '';
 
@@ -468,6 +433,8 @@ function renderOpsPanel() {
   const integrity = storage.eventLog?.integrity || {};
   const maintenance = storage.maintenance || {};
   const benchmarkLatest = storage.benchmarks?.latest || {};
+  const latency = state.opsSummary?.latency || { routes: [] };
+  const slowRoutes = (latency.routes || []).slice(0, 3);
   const action = state.opsActionState;
 
   return `<div class="workflow-section">
@@ -510,6 +477,18 @@ function renderOpsPanel() {
           <button class="finding-action-btn" onclick="downloadOpsArtifact('api-slo')">Download API SLO</button>
         </div>
       </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Latency (Top p95)</div>
+        ${slowRoutes.length === 0
+          ? '<div class="workflow-empty">No latency samples yet</div>'
+          : slowRoutes.map((row) => `<div class="workflow-item"><span>${escapeHtml(row.route)}</span><span>${fmt(row.p95Ms)} ms</span></div>`).join('')}
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Maintenance History</div>
+        ${(maintenance.history || []).length === 0
+          ? '<div class="workflow-empty">No maintenance history</div>'
+          : (maintenance.history || []).slice(0, 4).map((row) => `<div class="workflow-item"><span>${escapeHtml(row.resultReason || row.reason || 'unknown')}</span><span>${timeAgo(row.at)}</span></div>`).join('')}
+      </div>
     </div>
   </div>`;
 }
@@ -551,23 +530,11 @@ async function runOpsAction(type) {
 }
 
 function downloadOpsArtifact(type) {
-  const ops = state.opsSummary?.storage?.benchmarks?.latest || {};
-  let payload = null;
-  let filename = `${type}.json`;
-
-  if (type === 'storage-status') {
-    payload = state.opsSummary?.storage || null;
-    filename = 'storage-status.json';
-  } else if (type === 'storage-benchmark') {
-    payload = ops.storageReplay || null;
-    filename = 'storage-benchmark.json';
-  } else if (type === 'query-benchmark') {
-    payload = ops.queryPerformance || null;
-    filename = 'query-benchmark.json';
-  } else if (type === 'api-slo') {
-    payload = ops.apiSlo || null;
-    filename = 'api-slo.json';
-  }
+  const resolved = opsHelpers
+    ? opsHelpers.resolveArtifactPayload(state.opsSummary, type)
+    : { payload: null, filename: `${type}.json` };
+  const payload = resolved.payload;
+  const filename = resolved.filename;
 
   if (!payload) {
     state.opsActionState = { loading: false, message: '', error: `No data available for ${type}` };

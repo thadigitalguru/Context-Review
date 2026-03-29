@@ -203,6 +203,7 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/storage/status` storage mode and event-log metrics
 - `GET /api/health/storage` machine-readable storage health (`200` healthy, `503` degraded)
 - `GET /api/ops/summary` operator summary (storage health + benchmark snapshots, optional CI summary)
+- `GET /api/ops/latency` in-process API latency percentiles (p50/p95/p99 by route)
 - `POST /api/storage/compact` trigger event-log compaction (`admin` when auth is enabled)
 - `POST /api/storage/maintenance/run` run maintenance compaction policy (`admin` when auth is enabled)
 - `GET /api/sessions/:id/captures?limit=<n>&offset=<n>` paginated capture list mode
@@ -261,6 +262,13 @@ npm run ci:api-slo
 
 This command checks p95 latency for paged-lite sessions and report summary endpoints and fails on threshold regressions, writing `artifacts/api-slo.json`.
 
+Operator automation commands:
+
+```bash
+npm run ops:check
+npm run ops:repair
+```
+
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 ## Phase 5 Architecture Notes
@@ -286,6 +294,7 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 - Maintenance controls:
   - `CONTEXT_REVIEW_EVENT_COMPACT_INTERVAL_MINUTES` enables scheduled compaction.
   - `CONTEXT_REVIEW_EVENT_COMPACT_MIN_IDLE_MS` skips scheduled compaction while traffic is active.
+  - `CONTEXT_REVIEW_MAINTENANCE_HISTORY_LIMIT` caps persisted maintenance history records.
 
 ### Storage Runbook
 

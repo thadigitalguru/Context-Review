@@ -15,6 +15,7 @@ class SessionStorage {
     this.dataDir = options.dataDir || process.env.CONTEXT_REVIEW_DATA_DIR || path.join(__dirname, '../../data');
     this.dataFile = path.join(this.dataDir, 'sessions.json');
     this.eventFile = path.join(this.dataDir, 'events.ndjson');
+    this.maintenanceHistoryFile = path.join(this.dataDir, 'maintenance-history.json');
     const created = createStorageAdapter({
       mode: options.adapterMode,
       dataDir: this.dataDir,
@@ -53,8 +54,16 @@ class SessionStorage {
     this.lastCaptureAt = 0;
     this.lastMaintenanceRunAt = 0;
     this.lastMaintenanceResult = null;
+    this.maintenanceHistoryLimit = toPositiveInt(
+      options.maintenanceHistoryLimit !== undefined
+        ? options.maintenanceHistoryLimit
+        : process.env.CONTEXT_REVIEW_MAINTENANCE_HISTORY_LIMIT,
+      200,
+    );
+    this.maintenanceHistory = [];
     this.maintenanceTimer = null;
     this.loadFromDisk();
+    this.loadMaintenanceHistory();
     if (this.compactOnStart) {
       this.maybeCompactEventLog({ reason: 'startup' });
     }
@@ -288,6 +297,7 @@ class SessionStorage {
         maintenanceMinIdleMs: this.maintenanceMinIdleMs,
       };
       this.lastMaintenanceResult = skipped;
+      this.recordMaintenanceRun(skipped, options.reason || 'scheduled_maintenance');
       return skipped;
     }
     const result = this.maybeCompactEventLog({
@@ -296,6 +306,7 @@ class SessionStorage {
       force: options.force === true,
     });
     this.lastMaintenanceResult = result;
+    this.recordMaintenanceRun(result, options.reason || 'scheduled_maintenance');
     return result;
   }
 
@@ -334,6 +345,7 @@ class SessionStorage {
         minIdleMs: this.maintenanceMinIdleMs,
         lastRunAt: this.lastMaintenanceRunAt || null,
         lastResult: this.lastMaintenanceResult,
+        history: this.maintenanceHistory.slice(0, 20),
       },
     };
     if (this.adapterMode !== 'event' || !this.adapter || typeof this.adapter.getEventLogStats !== 'function') {
@@ -382,6 +394,44 @@ class SessionStorage {
         },
       },
     };
+  }
+
+  loadMaintenanceHistory() {
+    if (this.persistenceDisabled) return;
+    try {
+      if (!fs.existsSync(this.maintenanceHistoryFile)) return;
+      const raw = JSON.parse(fs.readFileSync(this.maintenanceHistoryFile, 'utf8'));
+      if (!Array.isArray(raw)) return;
+      this.maintenanceHistory = raw.slice(0, this.maintenanceHistoryLimit);
+    } catch {
+      this.maintenanceHistory = [];
+    }
+  }
+
+  saveMaintenanceHistory() {
+    if (this.persistenceDisabled) return;
+    try {
+      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
+      fs.writeFileSync(this.maintenanceHistoryFile, JSON.stringify(this.maintenanceHistory.slice(0, this.maintenanceHistoryLimit), null, 2));
+    } catch {
+      // Non-fatal: maintenance history is best-effort metadata.
+    }
+  }
+
+  recordMaintenanceRun(result, reason) {
+    const entry = {
+      at: Date.now(),
+      reason: reason || 'maintenance',
+      compacted: Boolean(result?.compacted),
+      dryRun: Boolean(result?.dryRun),
+      resultReason: result?.reason || 'unknown',
+      stats: result?.stats || null,
+    };
+    this.maintenanceHistory.unshift(entry);
+    if (this.maintenanceHistory.length > this.maintenanceHistoryLimit) {
+      this.maintenanceHistory = this.maintenanceHistory.slice(0, this.maintenanceHistoryLimit);
+    }
+    this.saveMaintenanceHistory();
   }
 }
 
