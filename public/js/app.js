@@ -1,5 +1,6 @@
 const API = '/api';
 const opsHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsHelpers) ? window.ContextReviewOpsHelpers : null;
+const opsPanelHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsPanelHelpers) ? window.ContextReviewOpsPanelHelpers : null;
 let state = {
   sessions: [],
   currentSessionId: null,
@@ -507,26 +508,21 @@ async function runOpsAction(type) {
   state.opsActionState = { loading: true, message: '', error: '' };
   renderMain();
 
-  let result = null;
-  if (type === 'maintenanceDry') {
-    result = await postApi('/storage/maintenance/run', { dryRun: true });
-  } else if (type === 'maintenanceForce') {
-    result = await postApi('/storage/maintenance/run', { dryRun: false, force: true });
-  } else if (type === 'compactDry') {
-    result = await postApi('/storage/compact', { dryRun: true });
-  } else {
-    state.opsActionState = { loading: false, message: '', error: 'Unknown ops action' };
+  const request = opsPanelHelpers
+    ? opsPanelHelpers.buildOpsActionRequest(type)
+    : { error: 'Unknown ops action' };
+  if (request.error) {
+    state.opsActionState = { loading: false, message: '', error: request.error };
     renderMain();
     return;
   }
 
-  if (result?._error) {
-    state.opsActionState = { loading: false, message: '', error: String(result._error) };
-  } else if (!result) {
-    state.opsActionState = { loading: false, message: '', error: 'Action failed' };
-  } else {
-    const reason = result.reason || (result.compacted ? 'completed' : 'no changes');
-    state.opsActionState = { loading: false, message: `Result: ${reason}`, error: '' };
+  const result = await postApi(request.path, request.payload);
+  const nextState = opsPanelHelpers
+    ? opsPanelHelpers.buildOpsActionState(result)
+    : { loading: false, message: '', error: 'Action failed', refreshNeeded: false };
+  state.opsActionState = { loading: nextState.loading, message: nextState.message, error: nextState.error };
+  if (nextState.refreshNeeded) {
     await refreshOpsSummary();
   }
 
@@ -534,27 +530,23 @@ async function runOpsAction(type) {
 }
 
 function downloadOpsArtifact(type) {
-  const resolved = opsHelpers
-    ? opsHelpers.resolveArtifactPayload(state.opsSummary, type)
-    : { payload: null, filename: `${type}.json` };
-  const payload = resolved.payload;
-  const filename = resolved.filename;
-
-  if (!payload) {
-    state.opsActionState = { loading: false, message: '', error: `No data available for ${type}` };
+  const instruction = (opsPanelHelpers && opsHelpers)
+    ? opsPanelHelpers.resolveDownloadInstruction(state.opsSummary, type, opsHelpers.resolveArtifactPayload)
+    : { ok: false, error: `No data available for ${type}` };
+  if (!instruction.ok) {
+    state.opsActionState = { loading: false, message: '', error: instruction.error };
     renderMain();
     return;
   }
 
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const download = opsPanelHelpers
+    ? opsPanelHelpers.triggerJsonDownload(instruction.payload, instruction.filename)
+    : { ok: false, error: 'Download unavailable in current environment' };
+  if (!download.ok) {
+    state.opsActionState = { loading: false, message: '', error: download.error };
+    renderMain();
+    return;
+  }
 }
 
 function renderPhase3Workflow() {
