@@ -11,6 +11,7 @@ const {
   formatSnapshotMarkdown,
   buildCISummary,
   runCICheck,
+  buildCrossSessionComparison,
 } = require('../analysis/session-analysis');
 
 function createAPIRouter(storage, options = {}) {
@@ -277,6 +278,15 @@ function createAPIRouter(storage, options = {}) {
         cacheAgeMs: cachedEntry?.cacheAgeMs || 0,
       },
     });
+  });
+
+  router.get('/reports/compare', (req, res) => {
+    const days = Number.isFinite(Number(req.query.days)) ? Math.max(1, Number(req.query.days)) : 7;
+    const limit = Number.isFinite(Number(req.query.limit)) ? Math.max(1, Math.min(25, Number(req.query.limit))) : 8;
+    const groupBy = req.query.groupBy ? String(req.query.groupBy) : 'project';
+    const scopedStorage = createScopedStorageView(storage, req.auth);
+    const comparison = buildCrossSessionComparison(scopedStorage, { days, limit, groupBy });
+    return res.json(comparison);
   });
 
   router.get('/reports/session/:id/snapshot', (req, res) => {

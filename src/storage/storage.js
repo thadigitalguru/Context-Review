@@ -337,6 +337,9 @@ class SessionStorage {
           storageReplayMaxMs: Number(process.env.CI_STORAGE_BENCH_MAX_REPLAY_MS || 2000),
           queryFilterMaxMs: Number(process.env.CI_QUERY_BENCH_MAX_FILTER_MS || 800),
           queryReportMaxMs: Number(process.env.CI_QUERY_BENCH_MAX_REPORT_MS || 3000),
+          analysisReportMaxMs: Number(process.env.CI_ANALYSIS_BENCH_MAX_REPORT_MS || 3500),
+          analysisCISummaryMaxMs: Number(process.env.CI_ANALYSIS_BENCH_MAX_CI_MS || 2500),
+          analysisTrendsMaxMs: Number(process.env.CI_ANALYSIS_BENCH_MAX_TRENDS_MS || 600),
         },
         latest: loadLatestBenchmarkArtifacts(benchmarkDir),
       },
@@ -523,6 +526,7 @@ function loadLatestBenchmarkArtifacts(dir) {
   return {
     storageReplay: safeLoadJson(path.join(dir, 'storage-benchmark.json')),
     queryPerformance: safeLoadJson(path.join(dir, 'query-benchmark.json')),
+    analysisPerformance: safeLoadJson(path.join(dir, 'analysis-benchmark.json')),
     apiSlo: safeLoadJson(path.join(dir, 'api-slo.json')),
   };
 }

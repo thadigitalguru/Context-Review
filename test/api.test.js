@@ -268,6 +268,14 @@ test('api reports summary exposes top waste drivers and expensive sessions', asy
   assert.ok(Array.isArray(summaryRes.body.topWasteDrivers));
   assert.ok(Array.isArray(summaryRes.body.mostExpensiveSessions));
   assert.ok(summaryRes.body.sessionCount >= 1);
+
+  const compareRes = await requestApp(app, { url: '/api/reports/compare?days=7&groupBy=project&limit=3' });
+  assert.equal(compareRes.statusCode, 200);
+  assert.equal(compareRes.body.groupBy, 'project');
+  assert.ok(Array.isArray(compareRes.body.items));
+  assert.ok(compareRes.body.items.length >= 1);
+  assert.ok(Object.prototype.hasOwnProperty.call(compareRes.body.items[0].current, 'estimatedWasteTokens'));
+  assert.ok(Object.prototype.hasOwnProperty.call(compareRes.body.items[0].delta, 'estimatedWasteTokensPct'));
 });
 
 test('api sessions supports team filters by project user and agent', async () => {
@@ -493,6 +501,7 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.equal(typeof statusRes.body.eventLog.telemetry.replayMs, 'number');
   assert.equal(typeof statusRes.body.benchmarks.config.storageReplayMaxMs, 'number');
   assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'storageReplay'));
+  assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'analysisPerformance'));
 
   const healthRes = await requestApp(app, { url: '/api/health/storage' });
   assert.equal(healthRes.statusCode, 200);

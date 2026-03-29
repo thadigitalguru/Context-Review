@@ -1,0 +1,81 @@
+{
+  "provider": "google",
+  "model": "gemini-2.5-pro",
+  "total_tokens": 170,
+  "token_counting": {
+    "method": "heuristic_chars",
+    "confidence": "low",
+    "source": "local_estimate"
+  },
+  "response_tokens": {
+    "input": 1710,
+    "output": 300,
+    "cacheRead": 120
+  },
+  "categories": {
+    "system_prompts": {
+      "tokens": 31,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "tool_definitions": {
+      "tokens": 34,
+      "count": 2,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "tool_calls": {
+      "tokens": 34,
+      "count": 2,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "tool_results": {
+      "tokens": 36,
+      "count": 2,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "assistant_text": {
+      "tokens": 13,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "user_text": {
+      "tokens": 12,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "thinking_blocks": {
+      "tokens": 0,
+      "count": 0,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    },
+    "media": {
+      "tokens": 10,
+      "count": 1,
+      "token_method": "heuristic_chars",
+      "token_confidence": "low"
+    }
+  },
+  "source_checks": {
+    "first_tool_call_source": {
+      "provider": "google",
+      "role": "model",
+      "msgIndex": 2,
+      "partIndex": 0,
+      "path": "contents[1].parts[0]"
+    },
+    "first_tool_result_source": {
+      "provider": "google",
+      "role": "user",
+      "msgIndex": 3,
+      "partIndex": 0,
+      "path": "contents[2].parts[0]"
+    }
+  }
+}

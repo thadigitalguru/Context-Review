@@ -29,6 +29,15 @@
       });
     }
 
+    const analysisBench = opsSummary.storage?.benchmarks?.latest?.analysisPerformance;
+    if (analysisBench && analysisBench.pass === false) {
+      alerts.push({
+        severity: 'warning',
+        title: 'Analysis Benchmark Failed',
+        text: `Report ${analysisBench.timings?.reportMs}ms, CI ${analysisBench.timings?.ciSummaryMs}ms, trends ${analysisBench.timings?.trendsMs}ms exceeded thresholds.`,
+      });
+    }
+
     const apiSlo = opsSummary.storage?.benchmarks?.latest?.apiSlo;
     if (apiSlo && apiSlo.pass === false) {
       alerts.push({
@@ -51,6 +60,9 @@
     }
     if (type === 'query-benchmark') {
       return { payload: latest.queryPerformance || null, filename: 'query-benchmark.json' };
+    }
+    if (type === 'analysis-benchmark') {
+      return { payload: latest.analysisPerformance || null, filename: 'analysis-benchmark.json' };
     }
     if (type === 'api-slo') {
       return { payload: latest.apiSlo || null, filename: 'api-slo.json' };

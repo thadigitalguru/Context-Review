@@ -198,6 +198,44 @@ function buildReportsSummary(storage, days) {
   };
 }
 
+function buildCrossSessionComparison(storage, options = {}) {
+  const now = Date.now();
+  const days = Number.isFinite(Number(options.days)) ? Math.max(1, Number(options.days)) : 7;
+  const limit = Number.isFinite(Number(options.limit)) ? Math.max(1, Math.min(25, Number(options.limit))) : 8;
+  const groupBy = normalizeGroupBy(options.groupBy);
+  const windowMs = days * 24 * 60 * 60 * 1000;
+  const current = buildGroupedWindow(storage, { groupBy, start: now - windowMs, end: now });
+  const previous = buildGroupedWindow(storage, { groupBy, start: now - (2 * windowMs), end: now - windowMs });
+
+  const keys = new Set([...current.keys(), ...previous.keys()]);
+  const items = [...keys].map((key) => {
+    const currentRow = current.get(key) || createEmptyGroupRow(key);
+    const previousRow = previous.get(key) || createEmptyGroupRow(key);
+    return {
+      group: key,
+      current: finalizeGroupRow(currentRow),
+      previous: finalizeGroupRow(previousRow),
+      delta: {
+        avgInputTokensPerRequestPct: percentDelta(previousRow.avgInputTokensPerRequest, currentRow.avgInputTokensPerRequest),
+        avgCostPerRequestPct: percentDelta(previousRow.avgCostPerRequest, currentRow.avgCostPerRequest),
+        estimatedWasteTokensPct: percentDelta(previousRow.estimatedWasteTokens, currentRow.estimatedWasteTokens),
+      },
+    };
+  }).sort((a, b) => {
+    const wasteDiff = b.current.estimatedWasteTokens - a.current.estimatedWasteTokens;
+    if (wasteDiff !== 0) return wasteDiff;
+    return b.current.totalCost - a.current.totalCost;
+  }).slice(0, limit);
+
+  return {
+    generatedAt: now,
+    windowDays: days,
+    groupBy,
+    itemCount: items.length,
+    items,
+  };
+}
+
 function buildSessionSnapshot(session, captures, findings, trends) {
   const cacheTokens = extractSessionCacheTokens(captures);
   const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
@@ -366,6 +404,66 @@ function buildMetricsWindow(storage, days, offsetWindow) {
   };
 }
 
+function normalizeGroupBy(value) {
+  const valid = new Set(['project', 'user', 'model', 'provider']);
+  const requested = String(value || 'project').toLowerCase();
+  return valid.has(requested) ? requested : 'project';
+}
+
+function buildGroupedWindow(storage, options) {
+  const sessions = storage.getSessions().filter((session) => session.lastActivity >= options.start && session.lastActivity < options.end);
+  const map = new Map();
+  for (const session of sessions) {
+    const key = resolveGroupKey(session, options.groupBy);
+    if (!map.has(key)) map.set(key, createEmptyGroupRow(key));
+    const row = map.get(key);
+    const captures = storage.getSessionCaptures(session.id);
+    const cacheTokens = extractSessionCacheTokens(captures);
+    const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
+    const findings = generateFindings(session, captures);
+
+    row.sessionCount += 1;
+    row.requestCount += session.requestCount || 0;
+    row.totalInputTokens += session.totalInputTokens || 0;
+    row.totalCost += cost.totalCost || 0;
+    row.estimatedWasteTokens += findings.reduce((sum, finding) => sum + (finding.estimatedSavings?.tokens || 0), 0);
+  }
+  return map;
+}
+
+function resolveGroupKey(session, groupBy) {
+  if (groupBy === 'user') return session.user || 'anonymous';
+  if (groupBy === 'model') return session.model || 'unknown';
+  if (groupBy === 'provider') return session.provider || 'unknown';
+  return session.project || 'default';
+}
+
+function createEmptyGroupRow(group) {
+  return {
+    group,
+    sessionCount: 0,
+    requestCount: 0,
+    totalInputTokens: 0,
+    totalCost: 0,
+    estimatedWasteTokens: 0,
+    avgInputTokensPerRequest: 0,
+    avgCostPerRequest: 0,
+  };
+}
+
+function finalizeGroupRow(row) {
+  return {
+    group: row.group,
+    sessionCount: row.sessionCount,
+    requestCount: row.requestCount,
+    totalInputTokens: row.totalInputTokens,
+    totalCost: roundMetric(row.totalCost),
+    estimatedWasteTokens: row.estimatedWasteTokens,
+    avgInputTokensPerRequest: row.requestCount > 0 ? Math.round(row.totalInputTokens / row.requestCount) : 0,
+    avgCostPerRequest: row.requestCount > 0 ? roundMetric(row.totalCost / row.requestCount) : 0,
+  };
+}
+
 function parseTimeQuery(value) {
   if (!value) return null;
   const numeric = Number(value);
@@ -485,4 +583,5 @@ module.exports = {
   formatSnapshotMarkdown,
   buildCISummary,
   runCICheck,
+  buildCrossSessionComparison,
 };

@@ -1,5 +1,5 @@
 const { countTokens, stringifyValue } = require('../tokens/counter');
-const { normalizeCapture } = require('./normalize');
+const { normalizeCapture, ensureNormalizedCompatibility } = require('./normalize');
 
 const TOOL_FINGERPRINTS = {
   claude_code: { patterns: ['Claude Code', 'claude-code', 'You are Claude, a helpful AI assistant made by Anthropic'], name: 'Claude Code' },
@@ -52,11 +52,14 @@ function parseRequest(capture) {
   const agent = detectAgent(body, request.headers || {});
   const normalized = normalizeCapture(capture);
   if (!normalized) return null;
+  const compatibility = ensureNormalizedCompatibility(normalized);
+  if (!compatibility.ok) return null;
 
   const breakdown = createEmptyBreakdown(provider, agent);
+  const compatibleNormalized = compatibility.normalized;
 
-  normalized.systemPrompts.forEach((prompt) => {
-    const stats = countTokens(prompt.text, { label: 'system_prompt', model: normalized.model, provider });
+  compatibleNormalized.systemPrompts.forEach((prompt) => {
+    const stats = countTokens(prompt.text, { label: 'system_prompt', model: compatibleNormalized.model, provider });
     breakdown.system_prompts.tokens += stats.tokens;
     breakdown.system_prompts.content.push({
       type: 'text',
@@ -69,8 +72,8 @@ function parseRequest(capture) {
     });
   });
 
-  normalized.toolDefinitions.forEach((tool) => {
-    const stats = countTokens(tool.raw, { label: 'tool_definition', model: normalized.model, provider });
+  compatibleNormalized.toolDefinitions.forEach((tool) => {
+    const stats = countTokens(tool.raw, { label: 'tool_definition', model: compatibleNormalized.model, provider });
     breakdown.tool_definitions.tokens += stats.tokens;
     breakdown.tool_definitions.count++;
     breakdown.tool_definitions.content.push({
@@ -82,8 +85,8 @@ function parseRequest(capture) {
     });
   });
 
-  normalized.items.forEach((item) => {
-    const stats = countTokens(item.text, { label: item.category, model: normalized.model, provider });
+  compatibleNormalized.items.forEach((item) => {
+    const stats = countTokens(item.text, { label: item.category, model: compatibleNormalized.model, provider });
     const preview = stringifyValue(item.text).substring(0, item.category === 'tool_results' ? 300 : 200);
     const baseEntry = {
       role: item.role,
@@ -147,7 +150,7 @@ function parseRequest(capture) {
     breakdown[key].token_confidence = summary.confidence;
   });
 
-  breakdown.model = normalized.model;
+  breakdown.model = compatibleNormalized.model;
   breakdown.token_counting = summarizeTokenCounting(breakdown);
   breakdown.response_tokens = response && response.body
     ? extractResponseTokens(response, provider)

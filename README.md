@@ -197,6 +197,7 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/ci/summary?days=7` machine-readable metrics for current vs previous windows (`_cache` metadata included)
 - `POST /api/ci/check` regression gate endpoint (`422` on threshold failures)
 - `GET /api/reports/summary?days=7` cached report summary (`_cache` metadata included)
+- `GET /api/reports/compare?days=7&groupBy=project&limit=8` cross-session comparison (`groupBy`: `project|user|model|provider`)
 - `POST /api/analysis/refresh` force refresh background analysis cache (supports `{"days":[7,14]}`)
 - `GET /api/reports/session/:id/snapshot` JSON shareable summary
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
@@ -254,6 +255,14 @@ npm run ci:query-benchmark
 
 This command benchmarks session filtering and report summary generation and fails if thresholds are exceeded (`CI_QUERY_BENCH_MAX_FILTER_MS`, `CI_QUERY_BENCH_MAX_REPORT_MS`), writing `artifacts/query-benchmark.json`.
 
+For CI analysis-path performance governance:
+
+```bash
+npm run ci:analysis-benchmark
+```
+
+This command benchmarks report generation, CI summary generation, and per-session trend analysis. It fails on threshold regressions (`CI_ANALYSIS_BENCH_MAX_REPORT_MS`, `CI_ANALYSIS_BENCH_MAX_CI_MS`, `CI_ANALYSIS_BENCH_MAX_TRENDS_MS`) and writes `artifacts/analysis-benchmark.json`.
+
 For API response SLO governance:
 
 ```bash
@@ -274,6 +283,7 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 ## Phase 5 Architecture Notes
 
 - Analysis logic is split into `src/analysis/session-analysis.js` to keep API routing thin.
+- Normalized parser schema is explicitly versioned (`1.x.x`) with compatibility guards in `src/parser/normalize.js`.
 - Background analysis caching runs in `src/analysis/background.js` and precomputes summary/CI windows.
 - Optional event-log mode (`CONTEXT_REVIEW_EVENT_LOG=1`) appends capture events to `data/events.ndjson` while preserving local-first `sessions.json` mode.
 - Recommended adapter toggle: `CONTEXT_REVIEW_STORAGE_ADAPTER=event` (`flat` remains default).
@@ -300,16 +310,26 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 1. Check health: `GET /api/health/storage`.
 2. Inspect status and metrics: `GET /api/storage/status` and `GET /api/ops/summary`.
-3. Compact manually:
+3. Open a maintenance window:
+   - pause high-volume capture traffic
+   - record current event count + replay latency from `/api/storage/status`
+4. Compact manually:
    - `npm run compact:event-log -- --max-events 5000 --max-age-days 30`
-4. Run automated checks:
+5. Run automated checks:
    - `npm run ops:check`
-5. Generate dry-run repair plan:
+6. Generate dry-run repair plan:
    - `npm run ops:repair`
-4. If degraded:
+7. Validate recovery outcome:
+   - verify `/api/health/storage` returns `200`
+   - verify `eventLog.integrity.degraded` is `false`
+   - verify replay/query/analysis benchmarks stay below thresholds
+8. If degraded:
    - locate recovery backup from `eventLog.integrity.backupFile`
    - compare/replay backup offline
-   - restore backup only if required
+9. Rollback (only if required):
+   - stop service
+   - restore backup event file to `data/events.ndjson`
+   - start service and re-check `/api/health/storage` and `/api/storage/status`
 
 ## Key Design Decisions
 

@@ -1,4 +1,6 @@
 const { stringifyValue } = require('../tokens/counter');
+const NORMALIZED_SCHEMA_VERSION = '1.0.0';
+const SUPPORTED_SCHEMA_MAJOR = 1;
 const NORMALIZED_CATEGORIES = new Set([
   'assistant_text',
   'user_text',
@@ -14,7 +16,7 @@ function normalizeCapture(capture) {
   if (!body) return null;
 
   const normalized = {
-    schemaVersion: '1.0.0',
+    schemaVersion: NORMALIZED_SCHEMA_VERSION,
     provider,
     model: extractModel(body, capture.response, provider),
     systemPrompts: [],
@@ -49,6 +51,8 @@ function validateNormalizedCapture(normalized) {
   if (!/^\d+\.\d+\.\d+$/.test(normalized.schemaVersion)) {
     return { ok: false, error: 'schemaVersion must be semver-like' };
   }
+  const compatibility = resolveSchemaCompatibility(normalized.schemaVersion);
+  if (!compatibility.ok) return compatibility;
   if (!normalized.model || typeof normalized.model !== 'string') {
     return { ok: false, error: 'model is required' };
   }
@@ -73,6 +77,39 @@ function validateNormalizedCapture(normalized) {
   }
 
   return { ok: true };
+}
+
+function ensureNormalizedCompatibility(normalized) {
+  if (!normalized || typeof normalized !== 'object') {
+    return { ok: false, error: 'normalized capture must be an object' };
+  }
+
+  const output = {
+    ...normalized,
+    schemaVersion: normalized.schemaVersion || NORMALIZED_SCHEMA_VERSION,
+    systemPrompts: Array.isArray(normalized.systemPrompts) ? normalized.systemPrompts : [],
+    toolDefinitions: Array.isArray(normalized.toolDefinitions) ? normalized.toolDefinitions : [],
+    messages: Array.isArray(normalized.messages) ? normalized.messages : [],
+    items: Array.isArray(normalized.items) ? normalized.items : [],
+  };
+
+  const check = validateNormalizedCapture(output);
+  if (!check.ok) return { ok: false, error: check.error };
+  return { ok: true, normalized: output };
+}
+
+function resolveSchemaCompatibility(version) {
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) {
+    return { ok: false, error: 'schemaVersion must be semver-like' };
+  }
+  const major = Number(version.split('.')[0]);
+  if (major !== SUPPORTED_SCHEMA_MAJOR) {
+    return {
+      ok: false,
+      error: `schemaVersion major ${major} is not supported (expected ${SUPPORTED_SCHEMA_MAJOR}.x.x)`,
+    };
+  }
+  return { ok: true, major };
 }
 
 function normalizeAnthropic(body, normalized) {
@@ -416,4 +453,11 @@ function validateSource(source) {
   return { ok: true };
 }
 
-module.exports = { normalizeCapture, validateNormalizedCapture };
+module.exports = {
+  NORMALIZED_SCHEMA_VERSION,
+  SUPPORTED_SCHEMA_MAJOR,
+  normalizeCapture,
+  validateNormalizedCapture,
+  ensureNormalizedCompatibility,
+  resolveSchemaCompatibility,
+};

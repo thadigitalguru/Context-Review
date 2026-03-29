@@ -13,6 +13,7 @@ let state = {
   composition: null,
   diffs: [],
   reportSummary: null,
+  reportComparison: null,
   pollTimer: null,
   findingFilter: null,
   diffFilter: null,
@@ -185,12 +186,14 @@ function healthLabel(score) {
 
 async function refresh() {
   state.sessions = await api('/sessions') || [];
-  const [stats, reportSummary, opsSummary] = await Promise.all([
+  const [stats, reportSummary, reportComparison, opsSummary] = await Promise.all([
     api('/stats'),
     api('/reports/summary?days=7'),
+    api('/reports/compare?days=7&groupBy=project&limit=5'),
     api('/ops/summary'),
   ]);
   state.reportSummary = reportSummary;
+  state.reportComparison = reportComparison;
   state.opsSummary = opsSummary;
 
   if (state.currentSessionId) {
@@ -474,6 +477,7 @@ function renderOpsPanel() {
           <button class="finding-action-btn" onclick="downloadOpsArtifact('storage-status')">Download Storage Status</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('storage-benchmark')">Download Replay Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('query-benchmark')">Download Query Benchmark</button>
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('analysis-benchmark')">Download Analysis Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('api-slo')">Download API SLO</button>
         </div>
       </div>
@@ -556,12 +560,14 @@ function downloadOpsArtifact(type) {
 function renderPhase3Workflow() {
   const trends = state.trends;
   const report = state.reportSummary;
-  if (!trends && !report) return '';
+  const compare = state.reportComparison;
+  if (!trends && !report && !compare) return '';
 
   const alerts = (trends?.alerts || []).slice(0, 3);
   const recurring = (trends?.recurringWaste || []).slice(0, 4);
   const topWaste = (report?.topWasteDrivers || []).slice(0, 4);
   const expensive = (report?.mostExpensiveSessions || []).slice(0, 3);
+  const compareRows = (compare?.items || []).slice(0, 4);
   const tools = (trends?.toolUsage || []).slice(0, 4);
   const forecast = trends?.forecast || {};
 
@@ -619,8 +625,22 @@ function renderPhase3Workflow() {
           ? '<div class="workflow-empty">No session cost data yet</div>'
           : expensive.map((row) => `<div class="workflow-item"><span>${escapeHtml((row.model || 'unknown').slice(0, 22))}</span><span>${fmtCost(row.totalCost)}</span></div>`).join('')}
       </div>
+
+      <div class="workflow-card">
+        <div class="workflow-card-title">Cross-Session Waste (${escapeHtml(compare?.groupBy || 'project')})</div>
+        ${compareRows.length === 0
+          ? '<div class="workflow-empty">No comparison data yet</div>'
+          : compareRows.map((row) => `<div class="workflow-item"><span>${escapeHtml(row.group)}</span><span>${fmt(row.current.estimatedWasteTokens)}t (${fmtPct(row.delta.estimatedWasteTokensPct)})</span></div>`).join('')}
+      </div>
     </div>
   </div>`;
+}
+
+function fmtPct(value) {
+  if (!Number.isFinite(value)) return '0%';
+  const rounded = Math.round(value * 10) / 10;
+  if (rounded > 0) return `+${rounded}%`;
+  return `${rounded}%`;
 }
 
 function renderFindingsSection() {

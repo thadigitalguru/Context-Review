@@ -44,20 +44,23 @@ This sequence matters. Better charts without trusted data or actionable recommen
   - `public/css/style.css`
   - `public/js/app.js`
 
-## Current Execution Status (Updated 2026-03-27)
+## Current Execution Status (Updated 2026-03-29)
 
 Completed highlights:
 
 - Phase 1 reliability baseline:
   - parser/provider coverage in automated tests
   - fixture-driven parser golden regression tests (Anthropic/OpenAI/Google)
+  - streaming + multimodal fixture corpus expansion across providers
   - normalized parser schema contract validation tests
+  - explicit normalized schema compatibility guards (`1.x.x`) with validation coverage
   - stream reconstruction hardening with malformed/partial SSE regression tests
 - Phase 2 recommendations:
   - source-aware findings with savings estimates
   - simulation actions and before/after delta APIs
 - Phase 3 workflows:
   - trends, forecasting, alerts, and reusable report summaries
+  - cross-session comparison API + UI for recurring waste by project/user/model/provider
 - Phase 4 team/CI:
   - project/user/agent filtering
   - CI summary/check endpoints
@@ -69,13 +72,13 @@ Completed highlights:
   - event-log compaction + retention controls
   - startup integrity checks + auto-recovery
   - storage observability (`/api/storage/status`, `/api/health/storage`) and CI health gate script
+  - analysis-path CI benchmark gate (`ci:analysis-benchmark`) and benchmark artifact reporting
 
 Remaining focus areas:
 
-- parser fixture corpus expansion to additional real-world edge cases
-- explicit normalized schema versioning for backward compatibility guarantees
 - performance profiling for long event logs and large session sets
-- lightweight operator docs/playbooks for incident and rollback workflows
+- operator drills for recovery/rollback validation in production-like environments
+- multi-session comparison drill-down filters and navigation polish
 
 ## Phase 1: Make The Data Trustworthy
 
@@ -382,11 +385,11 @@ The architecture supports growth without losing the simplicity of the current MV
 
 Current next queue:
 
-1. Expand fixture corpus with streaming-heavy and multimodal edge cases for all providers.
-2. Add normalized schema versioning + migration guards for parser output compatibility.
-3. Add replay/analysis performance benchmarks and budget thresholds in CI.
-4. Add operator runbooks for recovery validation, rollback, and storage maintenance windows.
-5. Add cross-session comparison UX to surface recurring waste patterns across teams/projects.
+1. Add long-horizon load benchmarks (30d+ synthetic history) and publish baseline trend budgets in CI.
+2. Add cross-session comparison drill-down UX (click-through into filtered sessions by selected group).
+3. Add operator recovery drill script and checklist automation for backup replay validation.
+4. Add parser schema migration test vectors for future `2.x` forward-compatibility planning.
+5. Add budget alert rules and thresholds in UI for token/cost guardrails per project.
 
 ## Definition Of Success
 

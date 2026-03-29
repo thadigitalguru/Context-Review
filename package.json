@@ -12,6 +12,7 @@
     "ci:storage-health": "node scripts/ci-storage-health.js",
     "ci:storage-benchmark": "node scripts/ci-storage-benchmark.js",
     "ci:query-benchmark": "node scripts/ci-query-benchmark.js",
+    "ci:analysis-benchmark": "node scripts/ci-analysis-benchmark.js",
     "ci:api-slo": "node scripts/ci-api-slo.js",
     "ops:check": "node scripts/ops-check.js",
     "ops:repair": "node scripts/ops-repair.js",

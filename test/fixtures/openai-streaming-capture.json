@@ -1,0 +1,101 @@
+{
+  "provider": "openai",
+  "timestamp": 1760000001400,
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "headers": {
+      "user-agent": "codex/1.3"
+    },
+    "body": {
+      "model": "gpt-4o",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are Codex in streaming mode. Keep output terse."
+        },
+        {
+          "role": "user",
+          "content": [
+            { "type": "text", "text": "Use this screenshot and fix the CI issue." },
+            { "type": "image_url", "image_url": { "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA8AAAAP" } }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "I will inspect logs and patch the broken assertion.",
+          "tool_calls": [
+            {
+              "id": "call-log",
+              "type": "function",
+              "function": {
+                "name": "read_log",
+                "arguments": "{\"path\":\"artifacts/ci.log\"}"
+              }
+            },
+            {
+              "id": "call-edit",
+              "type": "function",
+              "function": {
+                "name": "edit_file",
+                "arguments": "{\"path\":\"test/api.test.js\",\"patch\":\"@@\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call-log",
+          "name": "read_log",
+          "content": "<html><body>AssertionError: expected 503 to equal 200</body></html>"
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call-edit",
+          "name": "edit_file",
+          "content": "{\"ok\":true,\"changed\":3}"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "text", "text": "Patched tests and reran CI checks." },
+            { "type": "image_url", "image_url": { "url": "data:image/png;base64,QUJDREVGR0hJSktMTQ==" } }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "read_log",
+            "description": "Read CI logs",
+            "parameters": { "type": "object", "properties": { "path": { "type": "string" } } }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "edit_file",
+            "description": "Edit source file",
+            "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "patch": { "type": "string" } } }
+          }
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "model": "gpt-4o",
+      "usage": {
+        "prompt_tokens": 2330,
+        "completion_tokens": 390,
+        "prompt_tokens_details": {
+          "cached_tokens": 410
+        }
+      }
+    }
+  },
+  "isStreaming": true
+}

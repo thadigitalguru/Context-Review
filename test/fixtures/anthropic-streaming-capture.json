@@ -1,0 +1,79 @@
+{
+  "provider": "anthropic",
+  "timestamp": 1760000001300,
+  "request": {
+    "method": "POST",
+    "path": "/v1/messages",
+    "headers": {
+      "user-agent": "claude-code/1.2"
+    },
+    "body": {
+      "model": "claude-sonnet-4-20250514",
+      "system": [
+        { "type": "text", "text": "You are Claude Code streaming mode. Keep edits minimal." }
+      ],
+      "tools": [
+        {
+          "name": "Read",
+          "description": "Read file",
+          "input_schema": { "type": "object", "properties": { "path": { "type": "string" } } }
+        },
+        {
+          "name": "Edit",
+          "description": "Edit file",
+          "input_schema": { "type": "object", "properties": { "path": { "type": "string" }, "patch": { "type": "string" } } }
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            { "type": "text", "text": "Inspect this screenshot and patch the failing test." },
+            { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8" } }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "thinking", "thinking": "I should read the test file then patch assertions." },
+            { "type": "tool_use", "id": "toolu_read_1", "name": "Read", "input": { "path": "test/api.test.js" } },
+            { "type": "text", "text": "Reading the test now." }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            { "type": "tool_result", "tool_use_id": "toolu_read_1", "content": "<div>assert.equal(statusCode, 200)</div>" }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "tool_use", "id": "toolu_edit_1", "name": "Edit", "input": { "path": "test/api.test.js", "patch": "@@ -1 +1 @@" } },
+            { "type": "text", "text": "Patch prepared and applied." }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            { "type": "tool_result", "tool_use_id": "toolu_edit_1", "content": "Patch successful. 4 files updated." }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "statusCode": 200,
+    "headers": {},
+    "body": {
+      "model": "claude-sonnet-4-20250514",
+      "usage": {
+        "input_tokens": 2100,
+        "output_tokens": 420,
+        "cache_creation_input_tokens": 260,
+        "cache_read_input_tokens": 140
+      }
+    }
+  },
+  "isStreaming": true
+}
