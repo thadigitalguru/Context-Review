@@ -18,6 +18,7 @@ Context Review shows you exactly what's in every request:
 - **Simulation** — run what-if actions (trim results, remove tools, compact history) before changing prompts/tooling
 - **Cost tracking** — per-turn and per-session cost with cache-aware pricing
 - **Health scoring** — know when you're approaching overflow before it happens
+- **Cross-session drill-down** — click recurring waste groups to open filtered sessions by project/user/model/provider + time window
 - **Team + CI workflows** — segment by project/user and expose machine-readable regression checks
 
 ## Quick Start
@@ -123,6 +124,19 @@ Every API request is parsed into granular categories:
 
 Side-by-side comparison of consecutive turns showing what changed. Filter by category group (Drivers, Tools, Conversation) to drill into specific areas.
 
+### Cross-Session Drill-Down
+
+In **Workflow Insights**, the **Cross-Session Waste** card is clickable:
+
+1. Click a group row (project/user/model/provider).
+2. Context Review applies an exact filter window and opens the matching sessions view in the sidebar.
+3. The selected filter is saved in URL query params so links are shareable and reload-safe.
+4. Use **Reset Filter** in the sidebar to clear drill-down mode.
+
+Notes:
+- Backend compare API can return exact matching session IDs (`includeSessionIds=1`) to avoid frontend guesswork.
+- Drill-down URLs use `cf_*` query params (for example `cf_groupBy`, `cf_group`, `cf_from`, `cf_to`).
+
 ### Findings Engine
 
 Automatic detection of optimization opportunities:
@@ -197,7 +211,7 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/ci/summary?days=7` machine-readable metrics for current vs previous windows (`_cache` metadata included)
 - `POST /api/ci/check` regression gate endpoint (`422` on threshold failures)
 - `GET /api/reports/summary?days=7` cached report summary (`_cache` metadata included)
-- `GET /api/reports/compare?days=7&groupBy=project&limit=8` cross-session comparison (`groupBy`: `project|user|model|provider`)
+- `GET /api/reports/compare?days=7&groupBy=project&limit=8&includeSessionIds=1&sessionIdsLimit=80` cross-session comparison (`groupBy`: `project|user|model|provider`)
 - `POST /api/analysis/refresh` force refresh background analysis cache (supports `{"days":[7,14]}`)
 - `GET /api/reports/session/:id/snapshot` JSON shareable summary
 - `GET /api/reports/session/:id/snapshot?format=md` markdown snapshot for PRs/reviews
@@ -351,7 +365,7 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 ## Roadmap
 
 - [ ] WebSocket real-time updates (replace polling)
-- [ ] Multi-session comparison view
+- [x] Multi-session comparison view with cross-session waste drill-down filter
 - [ ] Token budget alerts and session cost limits
 - [ ] CLI-only mode for headless environments
 - [ ] Sub-agent tracking (main agent vs spawned agents)

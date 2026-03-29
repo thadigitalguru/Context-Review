@@ -283,9 +283,11 @@ function createAPIRouter(storage, options = {}) {
   router.get('/reports/compare', (req, res) => {
     const days = Number.isFinite(Number(req.query.days)) ? Math.max(1, Number(req.query.days)) : 7;
     const limit = Number.isFinite(Number(req.query.limit)) ? Math.max(1, Math.min(25, Number(req.query.limit))) : 8;
+    const sessionIdsLimit = Number.isFinite(Number(req.query.sessionIdsLimit)) ? Math.max(1, Math.min(200, Number(req.query.sessionIdsLimit))) : 80;
+    const includeSessionIds = String(req.query.includeSessionIds || '') === '1';
     const groupBy = req.query.groupBy ? String(req.query.groupBy) : 'project';
     const scopedStorage = createScopedStorageView(storage, req.auth);
-    const comparison = buildCrossSessionComparison(scopedStorage, { days, limit, groupBy });
+    const comparison = buildCrossSessionComparison(scopedStorage, { days, limit, groupBy, includeSessionIds, sessionIdsLimit });
     return res.json(comparison);
   });
 

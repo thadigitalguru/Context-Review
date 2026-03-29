@@ -202,10 +202,26 @@ function buildCrossSessionComparison(storage, options = {}) {
   const now = Date.now();
   const days = Number.isFinite(Number(options.days)) ? Math.max(1, Number(options.days)) : 7;
   const limit = Number.isFinite(Number(options.limit)) ? Math.max(1, Math.min(25, Number(options.limit))) : 8;
+  const includeSessionIds = options.includeSessionIds === true;
+  const sessionIdsLimit = Number.isFinite(Number(options.sessionIdsLimit))
+    ? Math.max(1, Math.min(200, Number(options.sessionIdsLimit)))
+    : 80;
   const groupBy = normalizeGroupBy(options.groupBy);
   const windowMs = days * 24 * 60 * 60 * 1000;
-  const current = buildGroupedWindow(storage, { groupBy, start: now - windowMs, end: now });
-  const previous = buildGroupedWindow(storage, { groupBy, start: now - (2 * windowMs), end: now - windowMs });
+  const current = buildGroupedWindow(storage, {
+    groupBy,
+    start: now - windowMs,
+    end: now,
+    includeSessionIds,
+    sessionIdsLimit,
+  });
+  const previous = buildGroupedWindow(storage, {
+    groupBy,
+    start: now - (2 * windowMs),
+    end: now - windowMs,
+    includeSessionIds,
+    sessionIdsLimit,
+  });
 
   const keys = new Set([...current.keys(), ...previous.keys()]);
   const items = [...keys].map((key) => {
@@ -213,8 +229,8 @@ function buildCrossSessionComparison(storage, options = {}) {
     const previousRow = previous.get(key) || createEmptyGroupRow(key);
     return {
       group: key,
-      current: finalizeGroupRow(currentRow),
-      previous: finalizeGroupRow(previousRow),
+      current: finalizeGroupRow(currentRow, { includeSessionIds, sessionIdsLimit }),
+      previous: finalizeGroupRow(previousRow, { includeSessionIds, sessionIdsLimit }),
       delta: {
         avgInputTokensPerRequestPct: percentDelta(previousRow.avgInputTokensPerRequest, currentRow.avgInputTokensPerRequest),
         avgCostPerRequestPct: percentDelta(previousRow.avgCostPerRequest, currentRow.avgCostPerRequest),
@@ -427,6 +443,9 @@ function buildGroupedWindow(storage, options) {
     row.totalInputTokens += session.totalInputTokens || 0;
     row.totalCost += cost.totalCost || 0;
     row.estimatedWasteTokens += findings.reduce((sum, finding) => sum + (finding.estimatedSavings?.tokens || 0), 0);
+    if (options.includeSessionIds === true && row.sessionIds.length < options.sessionIdsLimit) {
+      row.sessionIds.push(session.id);
+    }
   }
   return map;
 }
@@ -448,11 +467,12 @@ function createEmptyGroupRow(group) {
     estimatedWasteTokens: 0,
     avgInputTokensPerRequest: 0,
     avgCostPerRequest: 0,
+    sessionIds: [],
   };
 }
 
-function finalizeGroupRow(row) {
-  return {
+function finalizeGroupRow(row, options = {}) {
+  const out = {
     group: row.group,
     sessionCount: row.sessionCount,
     requestCount: row.requestCount,
@@ -462,6 +482,10 @@ function finalizeGroupRow(row) {
     avgInputTokensPerRequest: row.requestCount > 0 ? Math.round(row.totalInputTokens / row.requestCount) : 0,
     avgCostPerRequest: row.requestCount > 0 ? roundMetric(row.totalCost / row.requestCount) : 0,
   };
+  if (options.includeSessionIds === true) {
+    out.sessionIds = [...new Set(row.sessionIds || [])].slice(0, options.sessionIdsLimit || 80);
+  }
+  return out;
 }
 
 function parseTimeQuery(value) {

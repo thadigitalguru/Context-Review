@@ -1,6 +1,7 @@
 const API = '/api';
 const opsHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsHelpers) ? window.ContextReviewOpsHelpers : null;
 const opsPanelHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsPanelHelpers) ? window.ContextReviewOpsPanelHelpers : null;
+const comparisonHelpers = (typeof window !== 'undefined' && window.ContextReviewComparisonHelpers) ? window.ContextReviewComparisonHelpers : null;
 let state = {
   sessions: [],
   currentSessionId: null,
@@ -25,6 +26,14 @@ let state = {
     message: '',
     error: '',
   },
+  comparisonFilter: null,
+  comparisonConfig: {
+    days: 7,
+    groupBy: 'project',
+    limit: 5,
+    sessionIdsLimit: 80,
+  },
+  pendingAutoSelect: false,
 };
 
 async function api(path) {
@@ -186,11 +195,37 @@ function healthLabel(score) {
 }
 
 async function refresh() {
-  state.sessions = await api('/sessions') || [];
+  const sessionsPath = comparisonHelpers
+    ? comparisonHelpers.buildSessionsApiPath(state.comparisonFilter)
+    : '/sessions';
+  let sessions = await api(sessionsPath) || [];
+  if (comparisonHelpers && state.comparisonFilter?.active && Array.isArray(state.comparisonFilter.sessionIds) && state.comparisonFilter.sessionIds.length > 0) {
+    sessions = comparisonHelpers.filterSessionsByIds(sessions, state.comparisonFilter.sessionIds);
+  }
+  state.sessions = sessions;
+
+  if (state.currentSessionId && !state.sessions.some((s) => s.id === state.currentSessionId)) {
+    state.currentSessionId = null;
+    state.currentSession = null;
+    state.captures = [];
+    state.timeline = [];
+    state.findings = [];
+    state.composition = null;
+    state.diffs = [];
+    state.trends = null;
+    state.currentTurn = -1;
+  }
+  if (state.pendingAutoSelect && !state.currentSessionId && state.sessions.length > 0) {
+    state.currentSessionId = state.sessions[0].id;
+    state.pendingAutoSelect = false;
+  }
+
+  const comparison = state.comparisonConfig || { days: 7, groupBy: 'project', limit: 5, sessionIdsLimit: 80 };
+  const compareQuery = `/reports/compare?days=${encodeURIComponent(comparison.days)}&groupBy=${encodeURIComponent(comparison.groupBy)}&limit=${encodeURIComponent(comparison.limit)}&includeSessionIds=1&sessionIdsLimit=${encodeURIComponent(comparison.sessionIdsLimit)}`;
   const [stats, reportSummary, reportComparison, opsSummary] = await Promise.all([
     api('/stats'),
-    api('/reports/summary?days=7'),
-    api('/reports/compare?days=7&groupBy=project&limit=5'),
+    api(`/reports/summary?days=${encodeURIComponent(comparison.days)}`),
+    api(compareQuery),
     api('/ops/summary'),
   ]);
   state.reportSummary = reportSummary;
@@ -303,12 +338,20 @@ function renderTurnNav() {
 
 function renderSidebar() {
   const list = document.getElementById('session-list');
+  const filterLabel = comparisonHelpers ? comparisonHelpers.describeComparisonFilter(state.comparisonFilter) : '';
+  const filterHTML = filterLabel
+    ? `<div style="padding:8px 6px 10px 6px;border-bottom:1px solid var(--border-subtle);margin-bottom:6px">
+      <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Filtered View</div>
+      <div style="font-size:10px;color:var(--text-primary);line-height:1.3;margin-bottom:6px">${escapeHtml(filterLabel)}</div>
+      <button class="btn" style="font-size:10px;padding:4px 8px" onclick="resetCrossSessionFilter()">Reset Filter</button>
+    </div>`
+    : '';
   if (state.sessions.length === 0) {
-    list.innerHTML = '<div style="padding:20px 4px;text-align:center;font-size:10px;color:var(--text-muted)">No sessions</div>';
+    list.innerHTML = `${filterHTML}<div style="padding:20px 4px;text-align:center;font-size:10px;color:var(--text-muted)">No sessions</div>`;
     return;
   }
 
-  list.innerHTML = state.sessions.map(s => {
+  list.innerHTML = filterHTML + state.sessions.map(s => {
     const agents = Object.values(s.agents || {});
     const agent = agents.length > 0 ? agents[0] : { name: s.provider, id: 'unknown' };
     const color = getAgentColor(agent);
@@ -623,7 +666,8 @@ function renderPhase3Workflow() {
         <div class="workflow-card-title">Cross-Session Waste (${escapeHtml(compare?.groupBy || 'project')})</div>
         ${compareRows.length === 0
           ? '<div class="workflow-empty">No comparison data yet</div>'
-          : compareRows.map((row) => `<div class="workflow-item"><span>${escapeHtml(row.group)}</span><span>${fmt(row.current.estimatedWasteTokens)}t (${fmtPct(row.delta.estimatedWasteTokensPct)})</span></div>`).join('')}
+          : compareRows.map((row) => `<div class="workflow-item" style="cursor:pointer" onclick="applyCrossSessionDrilldown('${encodeURIComponent(row.group)}')"><span>${escapeHtml(row.group)}</span><span>${fmt(row.current.estimatedWasteTokens)}t (${fmtPct(row.delta.estimatedWasteTokensPct)})</span></div>`).join('')}
+        <div class="workflow-card-sub">Click a row to filter sessions by ${escapeHtml(compare?.groupBy || 'project')} over ${compare?.windowDays || 7}d.</div>
       </div>
     </div>
   </div>`;
@@ -634,6 +678,59 @@ function fmtPct(value) {
   const rounded = Math.round(value * 10) / 10;
   if (rounded > 0) return `+${rounded}%`;
   return `${rounded}%`;
+}
+
+function applyCrossSessionDrilldown(encodedGroup) {
+  if (!comparisonHelpers || !state.reportComparison) return;
+  const group = decodeURIComponent(String(encodedGroup || ''));
+  const row = (state.reportComparison.items || []).find((item) => String(item.group) === group);
+  const filter = comparisonHelpers.buildComparisonFilterFromRow({
+    groupBy: state.reportComparison.groupBy || state.comparisonConfig.groupBy,
+    group,
+    windowDays: state.reportComparison.windowDays || state.comparisonConfig.days,
+    sessionIds: row?.current?.sessionIds || [],
+    now: Date.now(),
+  });
+  state.comparisonFilter = filter;
+  state.comparisonConfig.groupBy = filter.groupBy;
+  state.comparisonConfig.days = filter.windowDays || state.comparisonConfig.days;
+  state.currentSessionId = null;
+  state.pendingAutoSelect = true;
+  syncComparisonFilterToUrl();
+  refresh();
+}
+
+function resetCrossSessionFilter() {
+  state.comparisonFilter = null;
+  state.currentSessionId = null;
+  state.pendingAutoSelect = true;
+  syncComparisonFilterToUrl();
+  refresh();
+}
+
+function syncComparisonFilterToUrl() {
+  if (typeof window === 'undefined' || !window.history || !window.location || !comparisonHelpers) return;
+  const current = new URLSearchParams(window.location.search || '');
+  for (const key of [...current.keys()]) {
+    if (key.startsWith('cf_')) current.delete(key);
+  }
+  const extra = comparisonHelpers.serializeComparisonFilter(state.comparisonFilter);
+  for (const [key, value] of extra.entries()) current.set(key, value);
+  const query = current.toString();
+  const next = `${window.location.pathname}${query ? `?${query}` : ''}`;
+  window.history.replaceState(null, '', next);
+}
+
+function restoreComparisonFilterFromUrl() {
+  if (typeof window === 'undefined' || !window.location || !comparisonHelpers) return;
+  const restored = comparisonHelpers.parseComparisonFilter(window.location.search || '');
+  if (!restored) return;
+  state.comparisonFilter = restored;
+  state.comparisonConfig.groupBy = restored.groupBy || state.comparisonConfig.groupBy;
+  if (Number.isFinite(Number(restored.windowDays))) {
+    state.comparisonConfig.days = Number(restored.windowDays);
+  }
+  state.pendingAutoSelect = true;
 }
 
 function renderFindingsSection() {
@@ -1435,6 +1532,7 @@ async function loadDemoData() {
 
 let isRefreshing = false;
 document.addEventListener('DOMContentLoaded', () => {
+  restoreComparisonFilterFromUrl();
   refresh();
   state.pollTimer = setInterval(() => {
     if (document.visibilityState !== 'hidden' && !isRefreshing) {

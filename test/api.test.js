@@ -269,13 +269,15 @@ test('api reports summary exposes top waste drivers and expensive sessions', asy
   assert.ok(Array.isArray(summaryRes.body.mostExpensiveSessions));
   assert.ok(summaryRes.body.sessionCount >= 1);
 
-  const compareRes = await requestApp(app, { url: '/api/reports/compare?days=7&groupBy=project&limit=3' });
+  const compareRes = await requestApp(app, { url: '/api/reports/compare?days=7&groupBy=project&limit=3&includeSessionIds=1&sessionIdsLimit=5' });
   assert.equal(compareRes.statusCode, 200);
   assert.equal(compareRes.body.groupBy, 'project');
   assert.ok(Array.isArray(compareRes.body.items));
   assert.ok(compareRes.body.items.length >= 1);
   assert.ok(Object.prototype.hasOwnProperty.call(compareRes.body.items[0].current, 'estimatedWasteTokens'));
   assert.ok(Object.prototype.hasOwnProperty.call(compareRes.body.items[0].delta, 'estimatedWasteTokensPct'));
+  assert.ok(Array.isArray(compareRes.body.items[0].current.sessionIds));
+  assert.ok(compareRes.body.items[0].current.sessionIds.length >= 1);
 });
 
 test('api sessions supports team filters by project user and agent', async () => {
