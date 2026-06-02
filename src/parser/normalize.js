@@ -112,6 +112,38 @@ function resolveSchemaCompatibility(version) {
   return { ok: true, major };
 }
 
+function buildSchemaMigrationChecklist(normalized, targetVersion = '2.0.0') {
+  const currentVersion = String(normalized?.schemaVersion || NORMALIZED_SCHEMA_VERSION);
+  const currentMajor = Number(currentVersion.split('.')[0]);
+  const target = String(targetVersion || '2.0.0');
+  const targetMajor = Number(target.split('.')[0]);
+  const currentSupported = Number.isFinite(currentMajor) && currentMajor === SUPPORTED_SCHEMA_MAJOR;
+  const targetSupported = Number.isFinite(targetMajor) && targetMajor === SUPPORTED_SCHEMA_MAJOR;
+  const hasRequiredShape = Boolean(normalized && typeof normalized === 'object' && Array.isArray(normalized.systemPrompts) && Array.isArray(normalized.toolDefinitions) && Array.isArray(normalized.messages) && Array.isArray(normalized.items));
+
+  return {
+    currentVersion,
+    currentMajor: Number.isFinite(currentMajor) ? currentMajor : null,
+    targetVersion: target,
+    targetMajor: Number.isFinite(targetMajor) ? targetMajor : null,
+    currentSupported,
+    targetSupported,
+    canAutoMigrate: currentSupported && targetSupported && hasRequiredShape,
+    preservesUnknownFields: true,
+    checklist: [
+      'Preserve source references and raw payloads during normalization.',
+      'Keep category mapping stable across provider adapters.',
+      'Add an explicit migration adapter for any new major schema version.',
+      'Validate that arrays and nested content survive round-trip serialization.',
+      'Add golden fixtures before flipping the supported major version.',
+    ],
+    notes: [
+      currentSupported ? 'Current schema major is supported.' : `Current schema major ${currentMajor} is outside the supported major ${SUPPORTED_SCHEMA_MAJOR}.`,
+      targetSupported ? 'Target schema major is already supported.' : `Target schema major ${targetMajor} will require a migration layer.`,
+    ],
+  };
+}
+
 function normalizeAnthropic(body, normalized) {
   if (typeof body.system === 'string') {
     pushSystemPrompt(normalized, body.system, { role: 'system', msgIndex: 0, partIndex: 0, provider: 'anthropic', path: 'system' });
@@ -460,4 +492,5 @@ module.exports = {
   validateNormalizedCapture,
   ensureNormalizedCompatibility,
   resolveSchemaCompatibility,
+  buildSchemaMigrationChecklist,
 };

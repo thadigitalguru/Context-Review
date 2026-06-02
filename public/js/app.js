@@ -2,11 +2,13 @@ const API = '/api';
 const opsHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsHelpers) ? window.ContextReviewOpsHelpers : null;
 const opsPanelHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsPanelHelpers) ? window.ContextReviewOpsPanelHelpers : null;
 const comparisonHelpers = (typeof window !== 'undefined' && window.ContextReviewComparisonHelpers) ? window.ContextReviewComparisonHelpers : null;
+const budgetHelpers = (typeof window !== 'undefined' && window.ContextReviewBudgetHelpers) ? window.ContextReviewBudgetHelpers : null;
 let state = {
   sessions: [],
   currentSessionId: null,
   currentSession: null,
   currentTab: 'overview',
+  dashboardMode: 'overview',
   currentTurn: -1,
   captures: [],
   timeline: [],
@@ -33,7 +35,25 @@ let state = {
     limit: 5,
     sessionIdsLimit: 80,
   },
+  comparisonActionState: {
+    message: '',
+    error: '',
+  },
+  comparisonPresetName: '',
+  comparisonPresets: [],
+  comparisonPresetState: {
+    message: '',
+    error: '',
+  },
   pendingAutoSelect: false,
+  budgetThresholds: null,
+  budgetProject: 'default',
+  budgetSettingsSource: 'default',
+  budgetSettingsList: [],
+  budgetActionState: {
+    message: '',
+    error: '',
+  },
 };
 
 async function api(path) {
@@ -68,6 +88,28 @@ async function postApi(path, payload) {
   }
 }
 
+async function fetchJsonWithStatus(path, options = {}) {
+  try {
+    const response = await fetch(`${API}${path}`, options);
+    const text = await response.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
+    return {
+      ok: response.ok,
+      status: response.status,
+      payload,
+      error: response.ok ? '' : (payload?.error || `Request failed (${response.status})`),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      payload: null,
+      error: err?.message || 'Request failed',
+    };
+  }
+}
+
 function fmt(n) {
   if (!n && n !== 0) return '0';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
@@ -79,6 +121,11 @@ function fmtCost(n) {
   if (!n && n !== 0) return '$0.00';
   if (n < 0.01) return '$' + n.toFixed(4);
   return '$' + n.toFixed(2);
+}
+
+function fmtMs(n) {
+  if (!Number.isFinite(Number(n))) return '0';
+  return String(Math.round(Number(n)));
 }
 
 function fmtTime(ts) {
@@ -222,15 +269,17 @@ async function refresh() {
 
   const comparison = state.comparisonConfig || { days: 7, groupBy: 'project', limit: 5, sessionIdsLimit: 80 };
   const compareQuery = `/reports/compare?days=${encodeURIComponent(comparison.days)}&groupBy=${encodeURIComponent(comparison.groupBy)}&limit=${encodeURIComponent(comparison.limit)}&includeSessionIds=1&sessionIdsLimit=${encodeURIComponent(comparison.sessionIdsLimit)}`;
-  const [stats, reportSummary, reportComparison, opsSummary] = await Promise.all([
+  const [stats, reportSummary, reportComparison, opsSummary, budgetSettingsList] = await Promise.all([
     api('/stats'),
     api(`/reports/summary?days=${encodeURIComponent(comparison.days)}`),
     api(compareQuery),
     api('/ops/summary'),
+    api('/budget/settings/list'),
   ]);
   state.reportSummary = reportSummary;
   state.reportComparison = reportComparison;
   state.opsSummary = opsSummary;
+  state.budgetSettingsList = Array.isArray(budgetSettingsList?.items) ? budgetSettingsList.items : [];
 
   if (state.currentSessionId) {
     const [session, captures, timeline, findings, diffs, trends] = await Promise.all([
@@ -249,6 +298,15 @@ async function refresh() {
     state.trends = trends || null;
     if (state.currentTurn === -1 && state.timeline.length > 0) state.currentTurn = state.timeline.length - 1;
     state.composition = await api(`/sessions/${state.currentSessionId}/composition?turn=${state.currentTurn}`);
+    const project = state.budgetProject && state.budgetProject !== 'default'
+      ? String(state.budgetProject)
+      : String(state.currentSession?.project || 'default');
+    await syncBudgetSettingsForProject(project);
+  } else if (state.budgetProject && state.budgetProject !== 'default') {
+    await syncBudgetSettingsForProject(state.budgetProject);
+  } else if (state.reportSummary?.budget?.items?.length > 0) {
+    const project = String(state.reportSummary.budget.items[0].project || 'default');
+    await syncBudgetSettingsForProject(project);
   }
 
   renderTopBar(stats);
@@ -357,38 +415,208 @@ function renderSidebar() {
     const color = getAgentColor(agent);
     const pct = s.totalInputTokens > 0 ? Math.min(100, Math.round((s.totalInputTokens / getContextWindow(s.model)) * 100)) : 0;
     const isActive = s.id === state.currentSessionId;
+    const title = s.project && s.project !== 'default'
+      ? s.project
+      : (s.model ? String(s.model).split('/').pop().slice(0, 18) : `Session ${String(s.id || '').slice(0, 8)}`);
+    const subtitleParts = [agent.name || s.provider || 'unknown'];
+    if (s.model) subtitleParts.push(String(s.model).split('/').pop().slice(0, 18));
+    if (s.lastActivity) subtitleParts.push(timeAgo(s.lastActivity));
+    const subtitle = subtitleParts.join(' · ');
 
     return `<div class="session-chip ${isActive ? 'active' : ''}" onclick="selectSession('${s.id}')">
-      <div class="session-chip-name" style="color:${color}">${agent.name.split(' ')[0].toLowerCase()}</div>
-      <div class="session-chip-tokens">${fmt(s.totalInputTokens)}t</div>
-      <div class="session-chip-bar" style="background:${color}22;color:${color}">${pct}%</div>
+      <div class="session-chip-main">
+        <div class="session-chip-title" style="color:${color}">${escapeHtml(title)}</div>
+        <div class="session-chip-meta">${escapeHtml(subtitle)}</div>
+      </div>
+      <div class="session-chip-stats">
+        <div class="session-chip-tokens">${fmt(s.totalInputTokens)}t</div>
+        <div class="session-chip-bar" style="background:${color}22;color:${color}">${pct}%</div>
+      </div>
     </div>`;
   }).join('');
+}
+
+function renderDashboardChrome() {
+  const s = state.currentSession;
+  const hasSession = !!(s && s.id);
+  const mode = state.dashboardMode || 'overview';
+  const report = state.reportSummary || {};
+  const ops = state.opsSummary || {};
+  const totalSessions = state.sessions.length || report.sessionCount || 0;
+  const totalCost = hasSession
+    ? (s.cost ? s.cost.totalCost : 0)
+    : (report.totalCost || state.sessions.reduce((sum, item) => sum + (item.cost?.totalCost || 0), 0));
+  const health = hasSession
+    ? computeHealth(s, state.composition, state.timeline)
+    : ((ops.health?.storage === 'healthy' || ops.health?.storage === 'good') ? 92 : 76);
+  const project = hasSession ? (s.project || 'default') : (state.budgetProject || 'all projects');
+  const model = hasSession ? (s.model || 'unknown') : (report.topModels?.[0]?.model || 'cross-session');
+  const provider = hasSession ? (s.provider || 'unknown') : (report.topModels?.[0]?.provider || 'all providers');
+  const turns = hasSession ? (s.requestCount || 0) : (report.topModels?.[0]?.requestCount || 0);
+  const activeAlerts = (state.findings?.length || 0)
+    + (state.trends?.alerts?.length || 0)
+    + (state.opsSummary?.alerts?.length || 0)
+    + (state.reportSummary?.budget?.alerts?.length || 0);
+
+  const summary = hasSession
+    ? [
+        ['Project', project],
+        ['Model', model],
+        ['Turns', fmt(turns)],
+        ['Cost', fmtCost(totalCost)],
+        ['Health', String(health)],
+      ]
+    : [
+        ['Sessions', fmt(totalSessions)],
+        ['Provider', provider],
+        ['Cost', fmtCost(totalCost)],
+        ['Alerts', fmt(activeAlerts)],
+        ['Scope', project],
+      ];
+
+  const modeLabels = {
+    overview: 'Overview',
+    live: 'Live',
+    compare: 'Compare',
+    alerts: 'Alerts',
+    settings: 'Settings',
+  };
+  const modeButtons = ['overview', 'live', 'compare', 'alerts', 'settings'].map((item) => `
+    <button class="dashboard-mode ${mode === item ? 'active' : ''}" onclick="setDashboardMode('${item}')">${modeLabels[item]}</button>
+  `).join('');
+
+  const actionButtons = hasSession
+    ? `
+      <button class="btn" onclick="exportLHAR()">Export</button>
+      <button class="btn" onclick="copyComparisonLink()">Share</button>
+      <button class="btn" onclick="refreshOpsSummary()">Refresh</button>
+    `
+    : `
+      <button class="btn" onclick="refresh()">Refresh</button>
+      <button class="btn" onclick="clearAll()">Reset</button>
+    `;
+
+  const summaryHTML = summary.map(([label, value], i) => `
+    <div class="summary-chip ${i === 0 ? 'primary' : ''}">
+      <div class="summary-chip-label">${escapeHtml(label)}</div>
+      <div class="summary-chip-value">${escapeHtml(String(value))}</div>
+    </div>
+  `).join('');
+
+  return `
+    <div class="dashboard-shell">
+      <div class="dashboard-header">
+        <div>
+          <div class="dashboard-kicker">Local-first LLM context intelligence layer</div>
+          <div class="dashboard-title">${hasSession ? escapeHtml(project) : 'Workspace overview'}</div>
+          <div class="dashboard-subtitle">${hasSession
+            ? `${escapeHtml(provider)} · ${escapeHtml(model)} · session ${escapeHtml((s.id || '').slice(0, 12))}`
+            : 'Inspect context growth, replay health, budget guardrails, and cross-session waste from one place.'}</div>
+        </div>
+        <div class="dashboard-actions">
+          ${actionButtons}
+        </div>
+      </div>
+      <div class="dashboard-mode-tabs">${modeButtons}</div>
+      <div class="summary-strip">${summaryHTML}</div>
+    </div>
+  `;
+}
+
+function renderDashboardHome() {
+  const report = state.reportSummary;
+  const hasData = !!(report || state.opsSummary || state.sessions.length);
+  const snapshot = `
+    <div class="dashboard-grid">
+      <div class="dashboard-panel">
+        <div class="section-header">
+          <div class="section-title">AT A GLANCE<span class="turn-info">Summary, forecast, and health</span></div>
+        </div>
+        <div class="stats-row">
+          <div class="stat-box"><div class="stat-box-value green">${fmt(state.sessions.length)}</div><div class="stat-box-label">Sessions</div><div class="stat-box-sub">Indexed locally</div></div>
+          <div class="stat-box"><div class="stat-box-value yellow">${fmtCost(report?.totalCost || 0)}</div><div class="stat-box-label">Spend</div><div class="stat-box-sub">Across all sessions</div></div>
+          <div class="stat-box"><div class="stat-box-value">${fmt(state.trends?.forecast?.turnsRemaining ?? 0)}</div><div class="stat-box-label">Turns Left</div><div class="stat-box-sub">${fmt(state.trends?.forecast?.remainingTokens || 0)} tokens remaining</div></div>
+          <div class="stat-box"><div class="health-gauge" style="border:3px solid ${healthColor(state.currentSession ? computeHealth(state.currentSession, state.composition, state.timeline) : 82)}"><div class="health-gauge-value" style="color:${healthColor(state.currentSession ? computeHealth(state.currentSession, state.composition, state.timeline) : 82)}">${state.currentSession ? computeHealth(state.currentSession, state.composition, state.timeline) : 82}</div></div><div class="stat-box-label">Health</div></div>
+        </div>
+      </div>
+      <div class="dashboard-panel dashboard-mini">
+        <div class="section-header">
+          <div class="section-title">LATEST SIGNALS<span class="turn-info">What needs attention now</span></div>
+        </div>
+        ${renderOpsAlerts() || '<div class="workflow-empty">No active alerts</div>'}
+      </div>
+    </div>
+    <div class="dashboard-grid two-up" style="margin-top:14px">
+      <div>${renderPhase3Workflow()}</div>
+      <div>${renderBudgetGuardrails() || ''}${renderOpsPanel() || ''}</div>
+    </div>
+    ${!hasData ? '<div class="empty-state" style="margin-top:18px"><div class="empty-state-icon">&#128202;</div><p>No saved sessions yet</p></div>' : ''}
+  `;
+  return snapshot;
+}
+
+function renderDashboardModeContent() {
+  switch (state.dashboardMode) {
+    case 'compare':
+      return `
+        <div class="dashboard-grid two-up">
+          <div>${renderPhase3Workflow()}</div>
+          <div>${renderBudgetGuardrails()}</div>
+        </div>
+      `;
+    case 'alerts':
+      return `
+        <div class="dashboard-grid two-up">
+          <div>${renderOpsAlerts()}</div>
+          <div>${renderBudgetGuardrails()}</div>
+        </div>
+        <div style="margin-top:14px">${renderPhase3Workflow()}</div>
+      `;
+    case 'settings':
+      return `
+        <div class="dashboard-grid two-up">
+          <div>${renderBudgetGuardrails()}</div>
+          <div>${renderOpsPanel()}</div>
+        </div>
+      `;
+    case 'overview':
+    default:
+      return renderDashboardHome();
+  }
 }
 
 function renderMain() {
   const welcome = document.getElementById('welcome-screen');
   const session = document.getElementById('session-view');
-
-  if (!state.currentSessionId || !state.currentSession || !state.currentSession.id) {
-    welcome.style.display = 'flex';
-    session.style.display = 'none';
-    return;
-  }
+  const tabBar = document.querySelector('.tab-bar');
+  const area = document.getElementById('tab-content');
+  const hasSession = !!(state.currentSessionId && state.currentSession && state.currentSession.id);
+  const chrome = renderDashboardChrome();
 
   welcome.style.display = 'none';
   session.style.display = 'flex';
+  if (tabBar) tabBar.style.display = hasSession && state.dashboardMode === 'live' ? 'flex' : 'none';
 
   document.querySelectorAll('.tab').forEach(t => {
     t.classList.toggle('active', t.dataset.tab === state.currentTab);
   });
 
-  const area = document.getElementById('tab-content');
+  if (!hasSession) {
+    area.innerHTML = chrome + renderDashboardHome();
+    return;
+  }
+
+  if (state.dashboardMode !== 'live') {
+    area.innerHTML = chrome + renderDashboardModeContent();
+    return;
+  }
+
   switch (state.currentTab) {
     case 'overview': renderOverview(area); break;
     case 'messages': renderMessages(area); break;
     case 'timeline': renderTimeline(area); break;
   }
+  area.insertAdjacentHTML('afterbegin', chrome);
 }
 
 function renderOverview(area) {
@@ -443,6 +671,7 @@ function renderOverview(area) {
   const diffHTML = renderContextDiff();
   const compHTML = renderComposition(comp);
   const countingHTML = renderTokenCountingSummary(comp?.token_counting);
+  const budgetHTML = renderBudgetGuardrails();
 
   const msgCount = comp ? (comp.messageCount || 0) : state.captures.length;
   const msgTokens = comp ? comp.total_tokens : s.totalInputTokens;
@@ -451,7 +680,7 @@ function renderOverview(area) {
     <div style="font-size:11px;color:var(--text-muted)">View all &rarr;</div>
   </div>`;
 
-  area.innerHTML = opsAlertsHTML + statsHTML + findingsHTML + workflowHTML + opsPanelHTML + diffHTML + compHTML + countingHTML + messagesHTML;
+  area.innerHTML = opsAlertsHTML + statsHTML + findingsHTML + workflowHTML + budgetHTML + opsPanelHTML + diffHTML + compHTML + countingHTML + messagesHTML;
 }
 
 function renderOpsAlerts() {
@@ -480,6 +709,9 @@ function renderOpsPanel() {
   const integrity = storage.eventLog?.integrity || {};
   const maintenance = storage.maintenance || {};
   const benchmarkLatest = storage.benchmarks?.latest || {};
+  const benchmarkCalibration = storage.benchmarks?.calibration || {};
+  const calibrationHistory = benchmarkCalibration.longHorizon || {};
+  const calibrationMetrics = calibrationHistory.metrics || {};
   const latency = state.opsSummary?.latency || { routes: [] };
   const slowRoutes = (latency.routes || []).slice(0, 3);
   const action = state.opsActionState;
@@ -494,13 +726,13 @@ function renderOpsPanel() {
         <div class="workflow-card-title">Storage Health</div>
         <div class="workflow-item"><span>Status</span><span>${escapeHtml(ops.health?.storage || 'unknown')}</span></div>
         <div class="workflow-item"><span>Integrity</span><span>${escapeHtml(integrity.reason || 'n/a')}</span></div>
-        <div class="workflow-item"><span>Replay</span><span>${fmt(telemetry.replayMs || 0)} ms</span></div>
+        <div class="workflow-item"><span>Replay</span><span>${fmtMs(telemetry.replayMs || 0)} ms</span></div>
         <div class="workflow-item"><span>Recoveries</span><span>${fmt(telemetry.recoveriesTotal || 0)}</span></div>
       </div>
       <div class="workflow-card">
         <div class="workflow-card-title">Maintenance</div>
         <div class="workflow-item"><span>Interval</span><span>${fmt(maintenance.intervalMinutes || 0)} min</span></div>
-        <div class="workflow-item"><span>Min idle</span><span>${fmt(maintenance.minIdleMs || 0)} ms</span></div>
+        <div class="workflow-item"><span>Min idle</span><span>${fmtMs(maintenance.minIdleMs || 0)} ms</span></div>
         <div class="workflow-item"><span>Last run</span><span>${maintenance.lastRunAt ? timeAgo(maintenance.lastRunAt) : 'never'}</span></div>
         <div class="workflow-card-sub">${escapeHtml(maintenance.lastResult?.reason || 'No maintenance run yet')}</div>
       </div>
@@ -523,6 +755,7 @@ function renderOpsPanel() {
           <button class="finding-action-btn" onclick="downloadOpsArtifact('query-benchmark')">Download Query Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('analysis-benchmark')">Download Analysis Benchmark</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('long-horizon-benchmark')">Download Long-Horizon Benchmark</button>
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('long-horizon-calibration')">Download Calibration</button>
           <button class="finding-action-btn" onclick="downloadOpsArtifact('api-slo')">Download API SLO</button>
         </div>
       </div>
@@ -530,13 +763,29 @@ function renderOpsPanel() {
         <div class="workflow-card-title">Latency (Top p95)</div>
         ${slowRoutes.length === 0
           ? '<div class="workflow-empty">No latency samples yet</div>'
-          : slowRoutes.map((row) => `<div class="workflow-item"><span>${escapeHtml(row.route)}</span><span>${fmt(row.p95Ms)} ms</span></div>`).join('')}
+          : slowRoutes.map((row) => `<div class="workflow-item"><span>${escapeHtml(row.route)}</span><span>${fmtMs(row.p95Ms)} ms</span></div>`).join('')}
       </div>
       <div class="workflow-card">
         <div class="workflow-card-title">Maintenance History</div>
         ${(maintenance.history || []).length === 0
           ? '<div class="workflow-empty">No maintenance history</div>'
           : (maintenance.history || []).slice(0, 4).map((row) => `<div class="workflow-item"><span>${escapeHtml(row.resultReason || row.reason || 'unknown')}</span><span>${timeAgo(row.at)}</span></div>`).join('')}
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Benchmark Calibration</div>
+        <div class="workflow-item"><span>History runs</span><span>${fmt(benchmarkCalibration.historyCount || 0)}</span></div>
+        <div class="workflow-item"><span>Filter p95</span><span>${fmtMs(calibrationMetrics.filterMs?.p95 || 0)} ms</span></div>
+        <div class="workflow-item"><span>Report p95</span><span>${fmtMs(calibrationMetrics.reportMs?.p95 || 0)} ms</span></div>
+        <div class="workflow-item"><span>Compare p95</span><span>${fmtMs(calibrationMetrics.compareMs?.p95 || 0)} ms</span></div>
+        <div class="workflow-item"><span>CI check p95</span><span>${fmtMs(calibrationMetrics.ciCheckMs?.p95 || 0)} ms</span></div>
+        <div class="workflow-item"><span>Recommended filter</span><span>${fmtMs(benchmarkCalibration.recommendedThresholds?.filterMaxMs || benchmarkLatest.longHorizonPerformance?.thresholds?.filterMaxMs || 0)} ms</span></div>
+        <div class="workflow-item"><span>Recommended report</span><span>${fmtMs(benchmarkCalibration.recommendedThresholds?.reportMaxMs || benchmarkLatest.longHorizonPerformance?.thresholds?.reportMaxMs || 0)} ms</span></div>
+        <div class="workflow-item"><span>Recommended compare</span><span>${fmtMs(benchmarkCalibration.recommendedThresholds?.compareMaxMs || benchmarkLatest.longHorizonPerformance?.thresholds?.compareMaxMs || 0)} ms</span></div>
+        <div class="ops-actions" style="margin-top:8px">
+          <button class="finding-action-btn" onclick="downloadOpsArtifact('long-horizon-calibration')">Download Calibration</button>
+          <button class="finding-action-btn" onclick="copyOpsArtifact('long-horizon-calibration')">Copy JSON</button>
+        </div>
+        <div class="workflow-card-sub">${escapeHtml(benchmarkCalibration.historyFile || 'No calibration history file yet')}</div>
       </div>
     </div>
   </div>`;
@@ -591,6 +840,22 @@ function downloadOpsArtifact(type) {
     renderMain();
     return;
   }
+}
+
+async function copyOpsArtifact(type) {
+  const instruction = (opsPanelHelpers && opsHelpers)
+    ? opsPanelHelpers.resolveDownloadInstruction(state.opsSummary, type, opsHelpers.resolveArtifactPayload)
+    : { ok: false, error: `No data available for ${type}` };
+  if (!instruction.ok) {
+    state.opsActionState = { loading: false, message: '', error: instruction.error };
+    renderMain();
+    return;
+  }
+  const copied = await copyTextToClipboard(JSON.stringify(instruction.payload, null, 2));
+  state.opsActionState = copied.ok
+    ? { loading: false, message: `Copied ${instruction.filename}`, error: '' }
+    : { loading: false, message: '', error: copied.error };
+  renderMain();
 }
 
 function renderPhase3Workflow() {
@@ -664,13 +929,340 @@ function renderPhase3Workflow() {
 
       <div class="workflow-card">
         <div class="workflow-card-title">Cross-Session Waste (${escapeHtml(compare?.groupBy || 'project')})</div>
+        <div class="ops-actions" style="margin-bottom:8px">
+          ${['project', 'user', 'model', 'provider'].map((groupBy) => `<button class="finding-action-btn ${compare?.groupBy === groupBy ? 'active' : ''}" onclick="setComparisonGroupBy('${groupBy}')">${groupBy}</button>`).join('')}
+        </div>
+        <div class="ops-actions" style="margin-bottom:8px">
+          ${[7, 14, 30].map((days) => `<button class="finding-action-btn ${Number(compare?.windowDays || 7) === days ? 'active' : ''}" onclick="setComparisonWindowDays(${days})">${days}d</button>`).join('')}
+        </div>
+        <div class="workflow-item" style="margin-bottom:6px">
+          <span>Preset label</span>
+          <input class="budget-input" type="text" value="${escapeHtml(state.comparisonPresetName || buildComparisonPresetName())}" onchange="updateComparisonPresetName(this.value)" placeholder="Save this workflow">
+        </div>
+        <div class="ops-actions" style="margin-bottom:8px">
+          ${[
+            ['project7', 'Project 7d'],
+            ['user14', 'User 14d'],
+            ['model30', 'Model 30d'],
+            ['provider30', 'Provider 30d'],
+          ].map(([preset, label]) => `<button class="finding-action-btn" onclick="applyComparisonPreset('${preset}')">${label}</button>`).join('')}
+          <button class="finding-action-btn" onclick="saveComparisonWorkflowPreset()">Save Workflow</button>
+          <button class="finding-action-btn" onclick="copyComparisonLink()">Copy Link</button>
+        </div>
         ${compareRows.length === 0
           ? '<div class="workflow-empty">No comparison data yet</div>'
-          : compareRows.map((row) => `<div class="workflow-item" style="cursor:pointer" onclick="applyCrossSessionDrilldown('${encodeURIComponent(row.group)}')"><span>${escapeHtml(row.group)}</span><span>${fmt(row.current.estimatedWasteTokens)}t (${fmtPct(row.delta.estimatedWasteTokensPct)})</span></div>`).join('')}
-        <div class="workflow-card-sub">Click a row to filter sessions by ${escapeHtml(compare?.groupBy || 'project')} over ${compare?.windowDays || 7}d.</div>
+          : compareRows.map((row) => `<div class="workflow-item" style="cursor:pointer" onclick="applyCrossSessionDrilldown('${encodeURIComponent(row.group)}')"><span>${escapeHtml(row.group)} <span style="color:var(--text-muted)">(${row.current.sessionCount} sessions)</span></span><span>${fmt(row.current.estimatedWasteTokens)}t (${fmtPct(row.delta.estimatedWasteTokensPct)})</span></div>`).join('')}
+        ${state.comparisonPresets?.length > 0 ? '<div class="workflow-card-sub" style="margin-top:10px">Saved workflows</div>' : ''}
+        ${state.comparisonPresets?.length > 0 ? state.comparisonPresets.slice(0, 4).map((preset) => `<div class="workflow-item"><span>${escapeHtml(preset.label)}</span><span><button class="finding-action-btn" style="padding:4px 8px;font-size:10px" onclick="event.stopPropagation();applyComparisonWorkflowPreset('${escapeHtml(preset.id)}')">Use</button> <button class="finding-action-btn" style="padding:4px 8px;font-size:10px" onclick="event.stopPropagation();deleteComparisonWorkflowPreset('${escapeHtml(preset.id)}')">Delete</button></span></div>`).join('') : ''}
+        ${state.comparisonPresetState?.message ? `<div class="workflow-card-sub">${escapeHtml(state.comparisonPresetState.message)}</div>` : ''}
+        ${state.comparisonPresetState?.error ? `<div class="workflow-card-sub" style="color:var(--red)">${escapeHtml(state.comparisonPresetState.error)}</div>` : ''}
+        ${state.comparisonActionState?.message ? `<div class="workflow-card-sub">${escapeHtml(state.comparisonActionState.message)}</div>` : ''}
+        ${state.comparisonActionState?.error ? `<div class="workflow-card-sub" style="color:var(--red)">${escapeHtml(state.comparisonActionState.error)}</div>` : ''}
+        <div class="workflow-card-sub">Click a row to filter sessions by ${escapeHtml(compare?.groupBy || 'project')} over ${compare?.windowDays || 7}d. The filtered view deep-links in the URL.</div>
       </div>
     </div>
   </div>`;
+}
+
+async function syncBudgetSettingsForProject(project) {
+  const normalizedProject = String(project || 'default');
+  if (state.budgetProject !== normalizedProject) {
+    state.budgetProject = normalizedProject;
+  }
+  state.budgetActionState = { message: '', error: '' };
+  const response = await fetchJsonWithStatus(`/budget/settings?project=${encodeURIComponent(normalizedProject)}`);
+  if (response.ok && response.payload?.thresholds) {
+    state.budgetThresholds = budgetHelpers ? budgetHelpers.normalizeThresholds(response.payload.thresholds, response.payload.thresholds) : response.payload.thresholds;
+    state.budgetSettingsSource = response.payload.source || 'default';
+    return;
+  }
+  if (response.status === 403) {
+    state.budgetThresholds = state.reportSummary?.budget?.thresholds || null;
+    state.budgetSettingsSource = 'forbidden';
+    state.budgetActionState = { message: '', error: response.error };
+    return;
+  }
+  if (response.status !== 0 && !response.ok) {
+    state.budgetActionState = { message: '', error: response.error };
+  }
+
+  if (budgetHelpers) {
+    const local = budgetHelpers.loadThresholds();
+    state.budgetThresholds = local;
+    state.budgetSettingsSource = local ? 'local' : 'default';
+  } else {
+    state.budgetThresholds = null;
+    state.budgetSettingsSource = 'default';
+  }
+}
+
+async function changeBudgetProject(project) {
+  state.budgetProject = String(project || 'default');
+  await syncBudgetSettingsForProject(state.budgetProject);
+  if (!state.budgetActionState?.error) {
+    state.budgetActionState = { message: `Viewing ${state.budgetProject} settings`, error: '' };
+  }
+  syncComparisonFilterToUrl();
+  renderMain();
+}
+
+function renderBudgetGuardrails() {
+  const report = state.reportSummary;
+  const budget = report?.budget;
+  if (!budget || !Array.isArray(budget.items) || budget.items.length === 0) return '';
+
+  const view = budgetHelpers ? budgetHelpers.buildBudgetView(budget, state.budgetThresholds) : budget;
+  const thresholds = view?.thresholds || budget.thresholds || {};
+  const alerts = view?.alerts || [];
+  const alertCounts = alerts.reduce((acc, alert) => {
+    const severity = String(alert?.severity || 'warning');
+    acc[severity] = (acc[severity] || 0) + 1;
+    return acc;
+  }, {});
+  const topProjects = (view?.items || []).slice(0, 4);
+  const usingCustom = budgetHelpers ? budgetHelpers.isUsingCustomThresholds(budget, thresholds) : false;
+  const sourceLabel = state.budgetSettingsSource === 'storage'
+    ? 'stored project settings'
+    : state.budgetSettingsSource === 'local'
+      ? 'local browser settings'
+      : state.budgetSettingsSource === 'forbidden'
+        ? 'access restricted by auth scope'
+        : 'report defaults';
+  const projectOptions = buildBudgetProjectOptions();
+
+  return `<div class="workflow-section">
+    <div class="section-header">
+      <div class="section-title">BUDGET GUARDRAILS<span class="turn-info">${escapeHtml(state.budgetProject || 'default')} · ${escapeHtml(sourceLabel)}</span></div>
+    </div>
+    <div class="workflow-grid">
+      <div class="workflow-card">
+        <div class="workflow-card-title">Project Scope</div>
+        <div class="workflow-item">
+          <span>Active project</span>
+          <select class="budget-input" style="width:160px;text-align:left" onchange="changeBudgetProject(this.value)">
+            ${projectOptions.map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === state.budgetProject ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="workflow-item"><span>Saved projects</span><span>${fmt(state.budgetSettingsList?.length || 0)}</span></div>
+        <div class="ops-actions" style="margin-top:8px">
+          <button class="finding-action-btn" onclick="exportBudgetSettings()">Export JSON</button>
+          <button class="finding-action-btn" onclick="shareBudgetSettings()">Copy Share JSON</button>
+          <button class="finding-action-btn" onclick="importBudgetSettings()">Import JSON</button>
+          <button class="finding-action-btn" onclick="copyBudgetProjectLink()">Copy Link</button>
+        </div>
+        ${state.budgetActionState?.message ? `<div class="workflow-card-sub">${escapeHtml(state.budgetActionState.message)}</div>` : ''}
+        ${state.budgetActionState?.error ? `<div class="workflow-card-sub" style="color:var(--red)">${escapeHtml(state.budgetActionState.error)}</div>` : ''}
+        <div class="workflow-card-sub">Choose a project to load or edit its stored budget thresholds.</div>
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Thresholds</div>
+        <div class="workflow-item"><span>Avg input / req</span><span>${fmt(thresholds.maxAvgInputTokensPerRequest || 0)}t</span></div>
+        <div class="workflow-item"><span>Avg cost / req</span><span>${fmtCost(thresholds.maxAvgCostPerRequest || 0)}</span></div>
+        <div class="workflow-item"><span>Total cost / project</span><span>${fmtCost(thresholds.maxTotalCostPerProject || 0)}</span></div>
+        <div class="workflow-item"><span>Session cost</span><span>${fmtCost(thresholds.maxSessionCost || 0)}</span></div>
+        <div class="workflow-card-sub">${usingCustom ? 'Using custom browser-local thresholds.' : 'Using report defaults or stored project thresholds.'}</div>
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Edit Thresholds</div>
+        <div class="workflow-item"><span>Avg input / req</span><input class="budget-input" type="number" min="1" step="1" value="${escapeHtml(String(thresholds.maxAvgInputTokensPerRequest || 0))}" onchange="updateBudgetThreshold('maxAvgInputTokensPerRequest', this.value)"></div>
+        <div class="workflow-item"><span>Avg cost / req</span><input class="budget-input" type="number" min="0" step="0.001" value="${escapeHtml(String(thresholds.maxAvgCostPerRequest || 0))}" onchange="updateBudgetThreshold('maxAvgCostPerRequest', this.value)"></div>
+        <div class="workflow-item"><span>Total cost / project</span><input class="budget-input" type="number" min="0" step="0.001" value="${escapeHtml(String(thresholds.maxTotalCostPerProject || 0))}" onchange="updateBudgetThreshold('maxTotalCostPerProject', this.value)"></div>
+        <div class="workflow-item"><span>Session cost</span><input class="budget-input" type="number" min="0" step="0.001" value="${escapeHtml(String(thresholds.maxSessionCost || 0))}" onchange="updateBudgetThreshold('maxSessionCost', this.value)"></div>
+        <div class="ops-actions" style="margin-top:10px">
+          <button class="finding-action-btn" onclick="saveBudgetThresholds()">Save Project Settings</button>
+          <button class="finding-action-btn" onclick="resetBudgetThresholds()">Reset Project Settings</button>
+        </div>
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Budget Alerts</div>
+        ${alerts.length === 0
+          ? '<div class="workflow-empty">No project budget alerts</div>'
+          : alerts.slice(0, 4).map((alert) => `<div class="workflow-item"><span>${escapeHtml(alert.project)}</span><span>${escapeHtml(alert.message)}</span></div>`).join('')}
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Guardrail Status</div>
+        <div class="workflow-item"><span>Total alerts</span><span>${fmt(alerts.length)}</span></div>
+        <div class="workflow-item"><span>Warnings</span><span>${fmt(alertCounts.warning || 0)}</span></div>
+        <div class="workflow-item"><span>High severity</span><span>${fmt(alertCounts.high || 0)}</span></div>
+        <div class="workflow-item"><span>Projects watched</span><span>${fmt(topProjects.length)}</span></div>
+        <div class="workflow-card-sub">${alerts.length === 0 ? 'No active budget guardrails are firing right now.' : 'Alerts are ranked by project risk and threshold pressure.'}</div>
+      </div>
+      <div class="workflow-card">
+        <div class="workflow-card-title">Project Risk</div>
+        ${topProjects.length === 0
+          ? '<div class="workflow-empty">No project budget data yet</div>'
+          : topProjects.map((item) => `<div class="workflow-item"><span>${escapeHtml(item.project)}</span><span>${fmt(item.totalCost)} · ${item.alerts.length} alerts</span></div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildBudgetProjectOptions() {
+  const projects = new Set(['default', String(state.budgetProject || 'default')]);
+  for (const item of state.budgetSettingsList || []) {
+    if (item?.project) projects.add(String(item.project));
+  }
+  for (const item of state.reportSummary?.budget?.items || []) {
+    if (item?.project) projects.add(String(item.project));
+  }
+  return [...projects].sort().map((project) => ({ value: project, label: project }));
+}
+
+function updateBudgetThreshold(field, value) {
+  const next = { ...(state.budgetThresholds || {}) };
+  next[field] = value;
+  state.budgetThresholds = budgetHelpers ? budgetHelpers.normalizeThresholds(next, state.reportSummary?.budget?.thresholds || {}) : next;
+  renderMain();
+}
+
+async function saveBudgetThresholds() {
+  const base = state.reportSummary?.budget?.thresholds || {};
+  state.budgetThresholds = budgetHelpers ? budgetHelpers.normalizeThresholds(state.budgetThresholds || base, base) : (state.budgetThresholds || base);
+  const project = state.budgetProject || state.currentSession?.project || 'default';
+  const result = await postApi('/budget/settings', {
+    project,
+    thresholds: state.budgetThresholds,
+  });
+  if (!result?._error && budgetHelpers) budgetHelpers.saveThresholds(state.budgetThresholds);
+  state.budgetSettingsSource = result?._error ? state.budgetSettingsSource : 'storage';
+  state.budgetActionState = result?._error
+    ? { message: '', error: result._error }
+    : { message: `Saved settings for ${project}`, error: '' };
+  syncComparisonFilterToUrl();
+  renderMain();
+}
+
+async function resetBudgetThresholds() {
+  const project = state.budgetProject || state.currentSession?.project || 'default';
+  const result = await postApi('/budget/settings/reset', { project });
+  if (!result?._error) {
+    state.budgetThresholds = null;
+    state.budgetSettingsSource = 'default';
+    state.budgetActionState = { message: `Reset settings for ${project}`, error: '' };
+    if (budgetHelpers) budgetHelpers.clearThresholds();
+  } else {
+    state.budgetActionState = { message: '', error: result?._error || 'Unable to reset settings' };
+  }
+  syncComparisonFilterToUrl();
+  renderMain();
+}
+
+function restoreBudgetThresholdsFromStorage() {
+  if (!budgetHelpers) return;
+  state.budgetThresholds = budgetHelpers.loadThresholds();
+}
+
+function downloadJsonFile(filename, payload) {
+  if (typeof window === 'undefined' || !window.document || !window.URL || !window.Blob) return { ok: false, error: 'Download unavailable in current environment' };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = window.URL.createObjectURL(blob);
+  try {
+    const a = window.document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    window.document.body.appendChild(a);
+    if (typeof a.click === 'function') a.click();
+    window.document.body.removeChild(a);
+    return { ok: true };
+  } finally {
+    window.URL.revokeObjectURL(url);
+  }
+}
+
+function copyTextToClipboard(text) {
+  if (typeof navigator === 'undefined' || !navigator.clipboard || !navigator.clipboard.writeText) {
+    return Promise.resolve({ ok: false, error: 'Clipboard unavailable' });
+  }
+  return navigator.clipboard.writeText(text).then(() => ({ ok: true })).catch((err) => ({ ok: false, error: err?.message || 'Clipboard copy failed' }));
+}
+
+async function exportBudgetSettings() {
+  const project = state.budgetProject || 'default';
+  const response = await fetchJsonWithStatus(`/budget/settings/export?project=${encodeURIComponent(project)}`);
+  if (response.status === 403) {
+    state.budgetActionState = { message: '', error: response.error };
+    renderMain();
+    return;
+  }
+  const payload = response.payload || null;
+  const resolvedThresholds = payload?.thresholds || state.budgetThresholds || state.reportSummary?.budget?.thresholds || {};
+  const exportPayload = budgetHelpers ? budgetHelpers.buildBudgetExportPayload({
+    project: payload?.project || project,
+    thresholds: resolvedThresholds,
+    updatedAt: payload?.updatedAt || null,
+    source: payload?.source || state.budgetSettingsSource || 'default',
+  }) : { project, thresholds: resolvedThresholds };
+  const result = downloadJsonFile(`context-review-budget-${project}.json`, exportPayload);
+  state.budgetActionState = result.ok
+    ? { message: `Exported settings for ${project}`, error: '' }
+    : { message: '', error: result.error };
+  renderMain();
+}
+
+async function shareBudgetSettings() {
+  const project = state.budgetProject || 'default';
+  const response = await fetchJsonWithStatus(`/budget/settings/export?project=${encodeURIComponent(project)}`);
+  if (response.status === 403) {
+    state.budgetActionState = { message: '', error: response.error };
+    renderMain();
+    return;
+  }
+  const payload = response.payload || null;
+  const resolvedThresholds = payload?.thresholds || state.budgetThresholds || state.reportSummary?.budget?.thresholds || {};
+  const shareText = budgetHelpers ? budgetHelpers.buildBudgetShareText({
+    project: payload?.project || project,
+    thresholds: resolvedThresholds,
+    updatedAt: payload?.updatedAt || null,
+    source: payload?.source || state.budgetSettingsSource || 'default',
+  }) : JSON.stringify({ project, thresholds: resolvedThresholds }, null, 2);
+  const copied = await copyTextToClipboard(shareText);
+  state.budgetActionState = copied.ok
+    ? { message: `Copied settings for ${project}`, error: '' }
+    : { message: '', error: copied.error };
+  renderMain();
+}
+
+async function importBudgetSettings() {
+  if (!budgetHelpers || typeof window === 'undefined' || typeof window.prompt !== 'function') {
+    state.budgetActionState = { message: '', error: 'Import unavailable in current environment' };
+    renderMain();
+    return;
+  }
+  const raw = window.prompt('Paste budget settings JSON');
+  if (!raw) return;
+  const parsed = budgetHelpers.parseBudgetShareText(raw);
+  if (!parsed.ok) {
+    state.budgetActionState = { message: '', error: parsed.error };
+    renderMain();
+    return;
+  }
+  const result = await postApi('/budget/settings/import', { payload: parsed });
+  if (!result?._error) {
+    state.budgetProject = result.project || parsed.project;
+    state.budgetThresholds = budgetHelpers.normalizeThresholds(result.thresholds || parsed.thresholds, state.reportSummary?.budget?.thresholds || {});
+    state.budgetSettingsSource = 'storage';
+    state.budgetActionState = { message: `Imported settings for ${state.budgetProject}`, error: '' };
+    await loadData();
+  } else {
+    state.budgetActionState = { message: '', error: result._error };
+  }
+  renderMain();
+}
+
+async function copyBudgetProjectLink() {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search || '');
+  params.set('bp', String(state.budgetProject || 'default'));
+  params.set('cp_days', String(state.comparisonConfig.days || 7));
+  params.set('cp_groupBy', String(state.comparisonConfig.groupBy || 'project'));
+  params.set('cp_limit', String(state.comparisonConfig.limit || 5));
+  params.set('cp_sessionIdsLimit', String(state.comparisonConfig.sessionIdsLimit || 80));
+  const link = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+  const copied = await copyTextToClipboard(link);
+  state.budgetActionState = copied.ok
+    ? { message: `Copied project link for ${state.budgetProject || 'default'}`, error: '' }
+    : { message: '', error: copied.error };
+  renderMain();
 }
 
 function fmtPct(value) {
@@ -694,14 +1286,68 @@ function applyCrossSessionDrilldown(encodedGroup) {
   state.comparisonFilter = filter;
   state.comparisonConfig.groupBy = filter.groupBy;
   state.comparisonConfig.days = filter.windowDays || state.comparisonConfig.days;
+  state.comparisonPresetName = buildComparisonPresetName();
   state.currentSessionId = null;
   state.pendingAutoSelect = true;
   syncComparisonFilterToUrl();
   refresh();
 }
 
+function setComparisonGroupBy(groupBy) {
+  if (!comparisonHelpers) return;
+  state.comparisonConfig.groupBy = comparisonHelpers.normalizeGroupBy(groupBy);
+  state.comparisonFilter = null;
+  state.comparisonPresetName = buildComparisonPresetName();
+  state.currentSessionId = null;
+  state.pendingAutoSelect = true;
+  syncComparisonFilterToUrl();
+  refresh();
+}
+
+function setComparisonWindowDays(days) {
+  const nextDays = Number(days);
+  if (!Number.isFinite(nextDays) || nextDays <= 0) return;
+  state.comparisonConfig.days = Math.max(1, Math.floor(nextDays));
+  state.comparisonFilter = null;
+  state.comparisonPresetName = buildComparisonPresetName();
+  state.currentSessionId = null;
+  state.pendingAutoSelect = true;
+  syncComparisonFilterToUrl();
+  refresh();
+}
+
+function applyComparisonPreset(presetName) {
+  const presets = {
+    project7: { groupBy: 'project', days: 7 },
+    user14: { groupBy: 'user', days: 14 },
+    model30: { groupBy: 'model', days: 30 },
+    provider30: { groupBy: 'provider', days: 30 },
+  };
+  const preset = presets[presetName];
+  if (!preset || !comparisonHelpers) return;
+  state.comparisonConfig.groupBy = preset.groupBy;
+  state.comparisonConfig.days = preset.days;
+  state.comparisonFilter = null;
+  state.comparisonPresetName = buildComparisonPresetName();
+  state.currentSessionId = null;
+  state.pendingAutoSelect = true;
+  syncComparisonFilterToUrl();
+  refresh();
+}
+
+async function copyComparisonLink() {
+  if (typeof window === 'undefined') return;
+  syncComparisonFilterToUrl();
+  const copied = await copyTextToClipboard(window.location.href);
+  state.comparisonActionState = copied.ok
+    ? { message: 'Copied comparison link', error: '' }
+    : { message: '', error: copied.error };
+  renderMain();
+}
+
 function resetCrossSessionFilter() {
   state.comparisonFilter = null;
+  state.comparisonPresetName = buildComparisonPresetName();
   state.currentSessionId = null;
   state.pendingAutoSelect = true;
   syncComparisonFilterToUrl();
@@ -712,10 +1358,14 @@ function syncComparisonFilterToUrl() {
   if (typeof window === 'undefined' || !window.history || !window.location || !comparisonHelpers) return;
   const current = new URLSearchParams(window.location.search || '');
   for (const key of [...current.keys()]) {
-    if (key.startsWith('cf_')) current.delete(key);
+    if (key.startsWith('cf_') || key.startsWith('cp_') || key === 'bp') current.delete(key);
   }
   const extra = comparisonHelpers.serializeComparisonFilter(state.comparisonFilter);
+  const configExtra = comparisonHelpers.serializeComparisonConfig(state.comparisonConfig);
+  const budgetProject = String(state.budgetProject || 'default');
   for (const [key, value] of extra.entries()) current.set(key, value);
+  for (const [key, value] of configExtra.entries()) current.set(key, value);
+  if (budgetProject && budgetProject !== 'default') current.set('bp', budgetProject);
   const query = current.toString();
   const next = `${window.location.pathname}${query ? `?${query}` : ''}`;
   window.history.replaceState(null, '', next);
@@ -723,14 +1373,95 @@ function syncComparisonFilterToUrl() {
 
 function restoreComparisonFilterFromUrl() {
   if (typeof window === 'undefined' || !window.location || !comparisonHelpers) return;
-  const restored = comparisonHelpers.parseComparisonFilter(window.location.search || '');
-  if (!restored) return;
-  state.comparisonFilter = restored;
-  state.comparisonConfig.groupBy = restored.groupBy || state.comparisonConfig.groupBy;
-  if (Number.isFinite(Number(restored.windowDays))) {
-    state.comparisonConfig.days = Number(restored.windowDays);
+  const search = window.location.search || '';
+  const restoredConfig = comparisonHelpers.parseComparisonConfig(search);
+  if (restoredConfig && Object.keys(restoredConfig).length > 0) {
+    state.comparisonConfig = { ...state.comparisonConfig, ...restoredConfig };
   }
+  const restored = comparisonHelpers.parseComparisonFilter(search);
+  if (restored) {
+    state.comparisonFilter = restored;
+    state.comparisonConfig.groupBy = restored.groupBy || state.comparisonConfig.groupBy;
+    if (Number.isFinite(Number(restored.windowDays))) {
+      state.comparisonConfig.days = Number(restored.windowDays);
+    }
+    state.pendingAutoSelect = true;
+  }
+  const params = new URLSearchParams(search.replace(/^\?/, ''));
+  const budgetProject = String(params.get('bp') || '').trim();
+  if (budgetProject) state.budgetProject = budgetProject;
+  state.comparisonPresetName = buildComparisonPresetName();
+}
+
+function restoreComparisonPresetsFromStorage() {
+  if (!comparisonHelpers) return;
+  state.comparisonPresets = comparisonHelpers.loadComparisonPresets();
+  if (!state.comparisonPresetName) {
+    state.comparisonPresetName = buildComparisonPresetName();
+  }
+}
+
+function buildComparisonPresetName() {
+  const filter = state.comparisonFilter;
+  if (filter?.active) {
+    return `${filter.groupBy || 'project'}:${filter.group || 'unknown'} ${filter.windowDays || state.comparisonConfig.days || 7}d`;
+  }
+  return `${state.comparisonConfig.groupBy || 'project'} ${state.comparisonConfig.days || 7}d`;
+}
+
+function updateComparisonPresetName(value) {
+  state.comparisonPresetName = String(value || '');
+  renderMain();
+}
+
+async function saveComparisonWorkflowPreset() {
+  if (!comparisonHelpers) {
+    state.comparisonPresetState = { message: '', error: 'Saved workflows unavailable in this environment' };
+    renderMain();
+    return;
+  }
+  const preset = comparisonHelpers.buildComparisonPreset({
+    label: state.comparisonPresetName || buildComparisonPresetName(),
+    config: state.comparisonConfig,
+    filter: state.comparisonFilter,
+  });
+  const next = comparisonHelpers.upsertComparisonPreset(state.comparisonPresets, preset);
+  const saved = comparisonHelpers.saveComparisonPresets(next);
+  state.comparisonPresets = next;
+  state.comparisonPresetName = preset.label;
+  state.comparisonPresetState = saved
+    ? { message: `Saved workflow “${preset.label}”`, error: '' }
+    : { message: '', error: 'Unable to save workflow preset' };
+  renderMain();
+}
+
+async function applyComparisonWorkflowPreset(presetId) {
+  if (!comparisonHelpers) return;
+  const preset = (state.comparisonPresets || []).find((item) => String(item.id) === String(presetId));
+  if (!preset) return;
+  state.comparisonConfig = { ...state.comparisonConfig, ...(preset.config || {}) };
+  state.comparisonFilter = preset.filter || null;
+  if (state.comparisonFilter?.active && Number.isFinite(Number(state.comparisonFilter.windowDays))) {
+    state.comparisonConfig.days = Number(state.comparisonFilter.windowDays);
+    state.comparisonConfig.groupBy = state.comparisonFilter.groupBy || state.comparisonConfig.groupBy;
+  }
+  state.currentSessionId = null;
   state.pendingAutoSelect = true;
+  state.comparisonPresetName = preset.label || buildComparisonPresetName();
+  state.comparisonPresetState = { message: `Loaded workflow “${state.comparisonPresetName}”`, error: '' };
+  syncComparisonFilterToUrl();
+  await refresh();
+}
+
+async function deleteComparisonWorkflowPreset(presetId) {
+  if (!comparisonHelpers) return;
+  const next = comparisonHelpers.removeComparisonPreset(state.comparisonPresets, presetId);
+  const saved = comparisonHelpers.saveComparisonPresets(next);
+  state.comparisonPresets = next;
+  state.comparisonPresetState = saved
+    ? { message: 'Deleted saved workflow preset', error: '' }
+    : { message: '', error: 'Unable to delete workflow preset' };
+  renderMain();
 }
 
 function renderFindingsSection() {
@@ -1079,6 +1810,7 @@ function renderComposition(comp) {
         <div class="comp-legend-dot" style="background:${c.color}"></div>
         <span>${c.name}</span>
         ${c.token_method ? `<span class="comp-legend-method ${c.token_confidence || 'low'}">${escapeHtml(shortTokenMethod(c.token_method))}</span>` : ''}
+        ${c.token_source ? `<span class="comp-legend-method ${escapeHtml(c.token_source)}">${escapeHtml(c.token_source)}</span>` : ''}
         <span class="comp-legend-pct">${c.percentage}%</span>
       </div>` : '').join('')}
     </div>
@@ -1331,6 +2063,7 @@ function selectSession(id) {
   state.currentSessionId = id;
   state.currentTurn = -1;
   state.currentTab = 'overview';
+  state.dashboardMode = 'live';
   state.findingFilter = null;
   state.diffFilter = null;
   state.trends = null;
@@ -1340,6 +2073,15 @@ function selectSession(id) {
 
 function switchTab(tab) {
   state.currentTab = tab;
+  state.dashboardMode = 'live';
+  renderMain();
+}
+
+function setDashboardMode(mode) {
+  state.dashboardMode = mode;
+  if (mode !== 'live') {
+    state.currentTab = 'overview';
+  }
   renderMain();
 }
 
@@ -1379,6 +2121,8 @@ async function clearAll() {
   await fetch(`${API}/sessions`, { method: 'DELETE' });
   state.currentSessionId = null;
   state.currentSession = null;
+  state.currentTab = 'overview';
+  state.dashboardMode = 'overview';
   state.captures = [];
   state.timeline = [];
   state.findings = [];
@@ -1533,6 +2277,8 @@ async function loadDemoData() {
 let isRefreshing = false;
 document.addEventListener('DOMContentLoaded', () => {
   restoreComparisonFilterFromUrl();
+  restoreComparisonPresetsFromStorage();
+  restoreBudgetThresholdsFromStorage();
   refresh();
   state.pollTimer = setInterval(() => {
     if (document.visibilityState !== 'hidden' && !isRefreshing) {

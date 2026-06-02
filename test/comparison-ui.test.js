@@ -8,6 +8,14 @@ const {
   buildSessionsApiPath,
   filterSessionsByIds,
   clearComparisonFilterFromSearch,
+  serializeComparisonConfig,
+  parseComparisonConfig,
+  clearComparisonConfigFromSearch,
+  loadComparisonPresets,
+  saveComparisonPresets,
+  buildComparisonPreset,
+  upsertComparisonPreset,
+  removeComparisonPreset,
 } = require('../public/js/comparison-helpers.js');
 
 test('buildComparisonFilterFromRow creates filter for project/user/model/provider with time window', () => {
@@ -63,7 +71,55 @@ test('buildSessionsApiPath and filterSessionsByIds apply drill-down filters and 
   assert.deepEqual(filtered, [{ id: 's-2' }]);
 });
 
+test('comparison config deep-link helpers serialize and restore presets', () => {
+  const config = { days: 14, groupBy: 'model', limit: 8, sessionIdsLimit: 120 };
+  const serialized = serializeComparisonConfig(config).toString();
+  const parsed = parseComparisonConfig(`?${serialized}`);
+
+  assert.deepEqual(parsed, config);
+  assert.equal(clearComparisonConfigFromSearch('?foo=1&cp_days=14&cp_groupBy=model&cp_limit=8&cp_sessionIdsLimit=120&bar=2'), '?foo=1&bar=2');
+});
+
 test('clearComparisonFilterFromSearch resets comparison query params only', () => {
   const cleaned = clearComparisonFilterFromSearch('?foo=1&cf_active=1&cf_groupBy=project&cf_group=alpha&bar=2');
   assert.equal(cleaned, '?foo=1&bar=2');
 });
+
+test('comparison preset helpers persist saved drill-down workflows', () => {
+  const storage = makeStorage();
+  const preset = buildComparisonPreset({
+    label: 'Project 7d',
+    config: { days: 7, groupBy: 'project', limit: 5, sessionIdsLimit: 80 },
+    filter: buildComparisonFilterFromRow({ groupBy: 'project', group: 'alpha', windowDays: 7, now: 1_700_000_000_000 }),
+  });
+
+  const saved = saveComparisonPresets([preset], storage);
+  assert.equal(saved, true);
+
+  const loaded = loadComparisonPresets(storage);
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].label, 'Project 7d');
+  assert.equal(loaded[0].filter.group, 'alpha');
+
+  const next = upsertComparisonPreset(loaded, { ...preset, label: 'Project 14d', config: { days: 14, groupBy: 'project', limit: 5, sessionIdsLimit: 80 } });
+  assert.equal(next.length, 1);
+  assert.equal(next[0].label, 'Project 14d');
+
+  const removed = removeComparisonPreset(next, next[0].id);
+  assert.equal(removed.length, 0);
+});
+
+function makeStorage() {
+  const map = new Map();
+  return {
+    getItem(key) {
+      return map.has(key) ? map.get(key) : null;
+    },
+    setItem(key, value) {
+      map.set(key, String(value));
+    },
+    removeItem(key) {
+      map.delete(key);
+    },
+  };
+}

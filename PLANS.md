@@ -44,7 +44,7 @@ This sequence matters. Better charts without trusted data or actionable recommen
   - `public/css/style.css`
   - `public/js/app.js`
 
-## Current Execution Status (Updated 2026-03-29)
+## Current Execution Status (Updated 2026-05-02)
 
 Completed highlights:
 
@@ -74,12 +74,15 @@ Completed highlights:
   - storage observability (`/api/storage/status`, `/api/health/storage`) and CI health gate script
   - analysis-path CI benchmark gate (`ci:analysis-benchmark`) and benchmark artifact reporting
   - long-horizon CI benchmark gate (`ci:long-horizon-benchmark`) with baseline budget thresholds
+  - history-backed long-horizon calibration artifact (`ci:long-horizon-calibrate`)
+  - operator recovery drill artifact (`ops:recovery-drill`)
+  - project budget guardrails with save/export/share/import workflows
 
 Remaining focus areas:
 
-- performance budget tuning from real-world CI baseline drift over long horizons
-- operator drills for recovery/rollback validation in production-like environments
-- multi-session comparison drill-down filters and navigation polish
+- collect real-world CI history and periodically refresh long-horizon baseline thresholds
+- exercise recovery/rollback validation against production-like event logs, not only dry-run fixtures
+- polish drill-down and budget workflows after user feedback from repeated local use
 
 ## Phase 1: Make The Data Trustworthy
 

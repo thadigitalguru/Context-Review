@@ -11,7 +11,8 @@
     "input": 2100,
     "output": 420,
     "cacheCreation": 260,
-    "cacheRead": 140
+    "cacheRead": 140,
+    "source": "provider_reported"
   },
   "categories": {
     "system_prompts": {

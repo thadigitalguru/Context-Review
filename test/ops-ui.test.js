@@ -37,6 +37,7 @@ test('resolveArtifactPayload maps known artifact types', () => {
           longHorizonPerformance: { pass: true },
           apiSlo: { pass: true },
         },
+        calibration: { historyCount: 3 },
       },
     },
   };
@@ -46,6 +47,7 @@ test('resolveArtifactPayload maps known artifact types', () => {
   const query = resolveArtifactPayload(summary, 'query-benchmark');
   const analysis = resolveArtifactPayload(summary, 'analysis-benchmark');
   const horizon = resolveArtifactPayload(summary, 'long-horizon-benchmark');
+  const calibration = resolveArtifactPayload(summary, 'long-horizon-calibration');
   const slo = resolveArtifactPayload(summary, 'api-slo');
 
   assert.equal(storage.filename, 'storage-status.json');
@@ -53,6 +55,7 @@ test('resolveArtifactPayload maps known artifact types', () => {
   assert.equal(query.filename, 'query-benchmark.json');
   assert.equal(analysis.filename, 'analysis-benchmark.json');
   assert.equal(horizon.filename, 'long-horizon-benchmark.json');
+  assert.equal(calibration.filename, 'long-horizon-calibration.json');
   assert.equal(slo.filename, 'api-slo.json');
   assert.equal(replay.payload.pass, true);
 });

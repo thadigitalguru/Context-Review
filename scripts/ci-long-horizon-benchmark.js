@@ -4,9 +4,17 @@ const path = require('path');
 
 const { SessionStorage } = require('../src/storage/storage');
 const { filterSessions, buildReportsSummary, buildCrossSessionComparison, runCICheck } = require('../src/analysis/session-analysis');
+const {
+  appendBenchmarkHistory,
+  loadBenchmarkHistory,
+  summarizeBenchmarkHistory,
+  recommendThresholds,
+} = require('../src/analysis/benchmark-baselines');
 
 const ARTIFACT_DIR = process.env.CI_STORAGE_ARTIFACT_DIR || path.join(process.cwd(), 'artifacts');
 const ARTIFACT_FILE = path.join(ARTIFACT_DIR, 'long-horizon-benchmark.json');
+const HISTORY_DIR = process.env.CI_BENCHMARK_HISTORY_DIR || path.join(ARTIFACT_DIR, 'benchmark-history');
+const HISTORY_FILE = path.join(HISTORY_DIR, 'long-horizon-history.json');
 
 const HORIZON_DAYS = Number(process.env.CI_LONG_HORIZON_BENCH_DAYS || 45);
 const SESSIONS_PER_DAY = Number(process.env.CI_LONG_HORIZON_BENCH_SESSIONS_PER_DAY || 24);
@@ -52,6 +60,24 @@ function main() {
     });
     const ciCheckMs = Date.now() - ciStarted;
 
+    const historyBefore = loadBenchmarkHistory(HISTORY_FILE);
+    const historySummary = summarizeBenchmarkHistory(historyBefore, ['filterMs', 'reportMs', 'compareMs', 'ciCheckMs']);
+    const recommendedThresholds = recommendThresholds(historySummary, { headroom: 0.2, min: 1 });
+    const useBaselineBudgets = String(process.env.CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS || '') === '1';
+    const effectiveThresholds = useBaselineBudgets && historySummary.count > 0
+      ? {
+          filterMaxMs: recommendedThresholds.filterMs || MAX_FILTER_MS,
+          reportMaxMs: recommendedThresholds.reportMs || MAX_REPORT_MS,
+          compareMaxMs: recommendedThresholds.compareMs || MAX_COMPARE_MS,
+          ciCheckMaxMs: recommendedThresholds.ciCheckMs || MAX_CI_CHECK_MS,
+        }
+      : {
+          filterMaxMs: MAX_FILTER_MS,
+          reportMaxMs: MAX_REPORT_MS,
+          compareMaxMs: MAX_COMPARE_MS,
+          ciCheckMaxMs: MAX_CI_CHECK_MS,
+        };
+
     const out = {
       checkedAt: new Date().toISOString(),
       horizonDays: HORIZON_DAYS,
@@ -61,11 +87,18 @@ function main() {
         sessions: HORIZON_DAYS * SESSIONS_PER_DAY,
         captures: HORIZON_DAYS * SESSIONS_PER_DAY * CAPTURES_PER_SESSION,
       },
-      thresholds: {
-        filterMaxMs: MAX_FILTER_MS,
-        reportMaxMs: MAX_REPORT_MS,
-        compareMaxMs: MAX_COMPARE_MS,
-        ciCheckMaxMs: MAX_CI_CHECK_MS,
+      thresholds: effectiveThresholds,
+      calibration: {
+        historyFile: HISTORY_FILE,
+        historyCount: historySummary.count,
+        summary: historySummary,
+        recommendedThresholds: {
+          filterMaxMs: recommendedThresholds.filterMs || MAX_FILTER_MS,
+          reportMaxMs: recommendedThresholds.reportMs || MAX_REPORT_MS,
+          compareMaxMs: recommendedThresholds.compareMs || MAX_COMPARE_MS,
+          ciCheckMaxMs: recommendedThresholds.ciCheckMs || MAX_CI_CHECK_MS,
+        },
+        useBaselineBudgets,
       },
       timings: {
         filterMs,
@@ -79,19 +112,30 @@ function main() {
         comparisonItems: compare.itemCount,
         ciPassed: ciCheck.passed,
       },
-      pass: filterMs <= MAX_FILTER_MS &&
-        reportMs <= MAX_REPORT_MS &&
-        compareMs <= MAX_COMPARE_MS &&
-        ciCheckMs <= MAX_CI_CHECK_MS,
+      pass: filterMs <= effectiveThresholds.filterMaxMs &&
+        reportMs <= effectiveThresholds.reportMaxMs &&
+        compareMs <= effectiveThresholds.compareMaxMs &&
+        ciCheckMs <= effectiveThresholds.ciCheckMaxMs,
     };
 
     ensureDir(ARTIFACT_DIR);
+    ensureDir(HISTORY_DIR);
     fs.writeFileSync(ARTIFACT_FILE, JSON.stringify(out, null, 2));
+    appendBenchmarkHistory(HISTORY_FILE, {
+      checkedAt: out.checkedAt,
+      timings: out.timings,
+      thresholds: out.thresholds,
+      sample: out.sample,
+      pass: out.pass,
+    }, 20);
 
     if (!out.pass) {
       throw new Error(`long-horizon benchmark exceeded thresholds: filter=${filterMs}ms report=${reportMs}ms compare=${compareMs}ms ciCheck=${ciCheckMs}ms`);
     }
-    console.log(`Long-horizon benchmark OK (filter=${filterMs}ms, report=${reportMs}ms, compare=${compareMs}ms, ciCheck=${ciCheckMs}ms)`);
+    const baselineText = historySummary.count > 0
+      ? ` baseline=${JSON.stringify(out.calibration.recommendedThresholds)}`
+      : '';
+    console.log(`Long-horizon benchmark OK (filter=${filterMs}ms, report=${reportMs}ms, compare=${compareMs}ms, ciCheck=${ciCheckMs}ms)${baselineText}`);
   } catch (err) {
     console.error(`Long-horizon benchmark failed: ${err.message}`);
     process.exitCode = 1;

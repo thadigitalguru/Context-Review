@@ -1,0 +1,30 @@
+[
+  {
+    "name": "current-1.x",
+    "normalized": {
+      "provider": "openai",
+      "schemaVersion": "1.0.0",
+      "model": "gpt-4o",
+      "systemPrompts": [],
+      "toolDefinitions": [],
+      "messages": [],
+      "items": []
+    },
+    "targetVersion": "1.1.0",
+    "canAutoMigrate": true
+  },
+  {
+    "name": "future-2.x",
+    "normalized": {
+      "provider": "openai",
+      "schemaVersion": "2.0.0",
+      "model": "gpt-4o",
+      "systemPrompts": [],
+      "toolDefinitions": [],
+      "messages": [],
+      "items": []
+    },
+    "targetVersion": "2.0.0",
+    "canAutoMigrate": false
+  }
+]

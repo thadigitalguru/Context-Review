@@ -103,6 +103,8 @@ Role behavior:
 - `editor`: viewer + write endpoints (`/api/simulate`, `/api/analysis/refresh`)
 - `admin`: editor + destructive endpoints (`DELETE /api/sessions`)
 
+Project scopes are also enforced when present in the auth claim (`projects` / `project_scope`), including budget settings reads, exports, imports, and resets.
+
 ## What It Shows
 
 ### 8-Category Context Breakdown
@@ -219,6 +221,10 @@ Export session data as LHAR (LLM HTTP Archive) for offline analysis — a JSON f
 - `GET /api/health/storage` machine-readable storage health (`200` healthy, `503` degraded)
 - `GET /api/ops/summary` operator summary (storage health + benchmark snapshots, optional CI summary)
 - `GET /api/ops/latency` in-process API latency percentiles (p50/p95/p99 by route)
+- `GET /api/budget/settings?project=<id>` read project budget thresholds
+- `POST /api/budget/settings` save project budget thresholds (`editor` when auth is enabled)
+- `POST /api/budget/settings/import` import exported/share JSON budget thresholds (`editor` when auth is enabled)
+- `GET /api/budget/settings/export?project=<id>` export shareable budget thresholds
 - `POST /api/storage/compact` trigger event-log compaction (`admin` when auth is enabled)
 - `POST /api/storage/maintenance/run` run maintenance compaction policy (`admin` when auth is enabled)
 - `GET /api/sessions/:id/captures?limit=<n>&offset=<n>` paginated capture list mode
@@ -281,9 +287,10 @@ For CI long-horizon (30d+) workload governance:
 
 ```bash
 npm run ci:long-horizon-benchmark
+npm run ci:long-horizon-calibrate
 ```
 
-This command seeds 30d+ synthetic history (default 45 days) and benchmarks filter/report/cross-session-compare/CI-check paths. It fails on baseline budget regressions (`CI_LONG_HORIZON_BENCH_MAX_FILTER_MS`, `CI_LONG_HORIZON_BENCH_MAX_REPORT_MS`, `CI_LONG_HORIZON_BENCH_MAX_COMPARE_MS`, `CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS`) and writes `artifacts/long-horizon-benchmark.json`.
+The benchmark seeds 30d+ synthetic history (default 45 days) and benchmarks filter/report/cross-session-compare/CI-check paths. It fails on baseline budget regressions (`CI_LONG_HORIZON_BENCH_MAX_FILTER_MS`, `CI_LONG_HORIZON_BENCH_MAX_REPORT_MS`, `CI_LONG_HORIZON_BENCH_MAX_COMPARE_MS`, `CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS`) and writes `artifacts/long-horizon-benchmark.json`. The calibration command reads benchmark history and writes recommended thresholds to `artifacts/long-horizon-calibration.json`.
 
 For API response SLO governance:
 
@@ -298,7 +305,10 @@ Operator automation commands:
 ```bash
 npm run ops:check
 npm run ops:repair
+npm run ops:recovery-drill
 ```
+
+The recovery drill performs dry-run maintenance/compaction checks, lists backup candidates, attempts backup replay validation when possible, and writes `artifacts/recovery-drill.json`.
 
 GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
@@ -327,6 +337,12 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
   - `CONTEXT_REVIEW_EVENT_COMPACT_INTERVAL_MINUTES` enables scheduled compaction.
   - `CONTEXT_REVIEW_EVENT_COMPACT_MIN_IDLE_MS` skips scheduled compaction while traffic is active.
   - `CONTEXT_REVIEW_MAINTENANCE_HISTORY_LIMIT` caps persisted maintenance history records.
+- Budget guardrails:
+  - `CONTEXT_REVIEW_BUDGET_MAX_INPUT_TOKENS_PER_REQUEST`
+  - `CONTEXT_REVIEW_BUDGET_MAX_COST_PER_REQUEST`
+  - `CONTEXT_REVIEW_BUDGET_MAX_TOTAL_COST_PER_PROJECT`
+  - `CONTEXT_REVIEW_BUDGET_MAX_SESSION_COST`
+  - Project-specific thresholds can be saved, exported, shared, and imported through the dashboard or budget settings APIs.
 
 ### Storage Runbook
 
@@ -341,14 +357,17 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
    - `npm run ops:check`
 6. Generate dry-run repair plan:
    - `npm run ops:repair`
-7. Validate recovery outcome:
+7. Run recovery drill:
+   - `npm run ops:recovery-drill`
+   - archive `artifacts/recovery-drill.json`
+8. Validate recovery outcome:
    - verify `/api/health/storage` returns `200`
    - verify `eventLog.integrity.degraded` is `false`
    - verify replay/query/analysis benchmarks stay below thresholds
-8. If degraded:
+9. If degraded:
    - locate recovery backup from `eventLog.integrity.backupFile`
    - compare/replay backup offline
-9. Rollback (only if required):
+10. Rollback (only if required):
    - stop service
    - restore backup event file to `data/events.ndjson`
    - start service and re-check `/api/health/storage` and `/api/storage/status`
@@ -366,11 +385,11 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 
 - [ ] WebSocket real-time updates (replace polling)
 - [x] Multi-session comparison view with cross-session waste drill-down filter
-- [ ] Token budget alerts and session cost limits
+- [x] Token budget alerts and session cost limits
 - [ ] CLI-only mode for headless environments
 - [ ] Sub-agent tracking (main agent vs spawned agents)
 - [ ] Plugin system for custom findings rules
-- [ ] Tokenizer integration (tiktoken/anthropic) for exact counts
+- [x] Tokenizer integration for supported OpenAI models with fallback counting
 - [ ] Import from Helicone/LiteLLM for migration
 
 ## License

@@ -10,7 +10,8 @@
   "response_tokens": {
     "input": 1200,
     "output": 210,
-    "cacheRead": 50
+    "cacheRead": 50,
+    "source": "provider_reported"
   },
   "categories": {
     "system_prompts": {

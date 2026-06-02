@@ -5,10 +5,10 @@ language = "javascript"
 
 [app]
 setup_command = "./setup.sh"
-start_command = "npm start"
+start_command = "DASHBOARD_PORT=5050 CONTEXT_REVIEW_DISABLE_PROXY=1 npm start"
 
 [services]
-dashboard_url = "http://localhost:5000"
+dashboard_url = "http://localhost:5050/"
 proxy_url = "http://localhost:8080"
 
 [notes]

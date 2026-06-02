@@ -8,6 +8,7 @@ test('uses tiktoken-backed counting for supported openai models', () => {
   assert.ok(result.tokens > 0);
   assert.ok(result.method.startsWith('tiktoken_'));
   assert.equal(result.confidence, 'high');
+  assert.equal(result.source, 'tokenizer');
 });
 
 test('falls back to heuristic counting for unsupported models', () => {
@@ -15,4 +16,5 @@ test('falls back to heuristic counting for unsupported models', () => {
   assert.ok(result.tokens > 0);
   assert.equal(result.method, 'heuristic_chars');
   assert.equal(result.confidence, 'low');
+  assert.equal(result.source, 'heuristic');
 });

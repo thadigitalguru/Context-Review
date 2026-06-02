@@ -183,6 +183,14 @@ test('api capture detail route is scoped to the requested session and findings e
   const findings = findingsRes.body;
   assert.ok(findings.some((finding) => finding.estimatedSavings));
   assert.ok(findings.some((finding) => finding.source || finding.sources || finding.tools));
+
+  const compositionRes = await requestApp(app, {
+    url: `/api/sessions/${added.sessionId}/composition?turn=0`,
+  });
+  assert.equal(compositionRes.statusCode, 200);
+  assert.ok(Array.isArray(compositionRes.body.composition.categories));
+  assert.equal(typeof compositionRes.body.composition.token_counting.source, 'string');
+  assert.ok(Object.prototype.hasOwnProperty.call(compositionRes.body.composition.categories[0], 'token_source'));
 });
 
 test('api simulate returns before/after deltas for recommendation actions', async () => {
@@ -268,6 +276,9 @@ test('api reports summary exposes top waste drivers and expensive sessions', asy
   assert.ok(Array.isArray(summaryRes.body.topWasteDrivers));
   assert.ok(Array.isArray(summaryRes.body.mostExpensiveSessions));
   assert.ok(summaryRes.body.sessionCount >= 1);
+  assert.ok(summaryRes.body.budget);
+  assert.ok(Array.isArray(summaryRes.body.budget.items));
+  assert.ok(Array.isArray(summaryRes.body.budget.alerts));
 
   const compareRes = await requestApp(app, { url: '/api/reports/compare?days=7&groupBy=project&limit=3&includeSessionIds=1&sessionIdsLimit=5' });
   assert.equal(compareRes.statusCode, 200);
@@ -505,6 +516,8 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'storageReplay'));
   assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'analysisPerformance'));
   assert.ok(Object.prototype.hasOwnProperty.call(statusRes.body.benchmarks.latest, 'longHorizonPerformance'));
+  assert.ok(statusRes.body.benchmarks.calibration);
+  assert.ok(Array.isArray(statusRes.body.benchmarks.calibration.longHorizon.keys));
 
   const healthRes = await requestApp(app, { url: '/api/health/storage' });
   assert.equal(healthRes.statusCode, 200);
@@ -549,6 +562,66 @@ test('api storage status and compaction endpoints expose event-log ops controls'
   const statusAfterMaintenance = await requestApp(app, { url: '/api/storage/status' });
   assert.equal(statusAfterMaintenance.statusCode, 200);
   assert.ok(Array.isArray(statusAfterMaintenance.body.maintenance.history));
+
+  const budgetList = await requestApp(app, { url: '/api/budget/settings/list' });
+  assert.equal(budgetList.statusCode, 200);
+  assert.ok(Array.isArray(budgetList.body.items));
+
+  const budgetRead = await requestApp(app, { url: '/api/budget/settings?project=alpha' });
+  assert.equal(budgetRead.statusCode, 200);
+  assert.equal(budgetRead.body.project, 'alpha');
+  assert.equal(budgetRead.body.thresholds.maxAvgInputTokensPerRequest, 1500);
+  assert.equal(budgetRead.body.thresholds.maxAvgCostPerRequest, 0.05);
+  assert.equal(budgetRead.body.thresholds.filterMaxMs, undefined);
+
+  const budgetExport = await requestApp(app, { url: '/api/budget/settings/export?project=alpha' });
+  assert.equal(budgetExport.statusCode, 200);
+  assert.equal(budgetExport.body.project, 'alpha');
+  assert.equal(typeof budgetExport.body.exportedAt, 'number');
+
+  const budgetSave = await requestApp(app, {
+    method: 'POST',
+    url: '/api/budget/settings',
+    body: {
+      project: 'alpha',
+      thresholds: {
+        maxAvgInputTokensPerRequest: 1234,
+        maxAvgCostPerRequest: 0.012,
+        maxTotalCostPerProject: 0.34,
+        maxSessionCost: 0.045,
+      },
+    },
+  });
+  assert.equal(budgetSave.statusCode, 200);
+  assert.equal(budgetSave.body.project, 'alpha');
+  assert.equal(budgetSave.body.thresholds.maxAvgInputTokensPerRequest, 1234);
+
+  const budgetImport = await requestApp(app, {
+    method: 'POST',
+    url: '/api/budget/settings/import',
+    body: {
+      payload: {
+        project: 'beta',
+        source: 'share-json',
+        thresholds: {
+          maxAvgInputTokensPerRequest: 2222,
+          maxAvgCostPerRequest: 0.022,
+        },
+      },
+    },
+  });
+  assert.equal(budgetImport.statusCode, 200);
+  assert.equal(budgetImport.body.project, 'beta');
+  assert.equal(budgetImport.body.importedFrom, 'share-json');
+  assert.equal(budgetImport.body.thresholds.maxAvgInputTokensPerRequest, 2222);
+
+  const budgetReset = await requestApp(app, {
+    method: 'POST',
+    url: '/api/budget/settings/reset',
+    body: { project: 'alpha' },
+  });
+  assert.equal(budgetReset.statusCode, 200);
+  assert.equal(budgetReset.body.cleared, true);
 
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
@@ -601,10 +674,23 @@ test('auth middleware enforces credentials, roles, and tenant scoping', async ()
   });
   storage.addCapture(tenantACapture, parseRequest(tenantACapture));
   storage.addCapture(tenantBCapture, parseRequest(tenantBCapture));
+  storage.upsertBudgetSettings('alpha', {
+    maxAvgInputTokensPerRequest: 1111,
+    maxAvgCostPerRequest: 0.011,
+    maxTotalCostPerProject: 0.22,
+    maxSessionCost: 0.03,
+  });
+  storage.upsertBudgetSettings('beta', {
+    maxAvgInputTokensPerRequest: 2222,
+    maxAvgCostPerRequest: 0.022,
+    maxTotalCostPerProject: 0.44,
+    maxSessionCost: 0.06,
+  });
 
   const apiKeys = new Map([
     ['viewer-key', { tenant: 'tenant-a', role: 'viewer' }],
     ['editor-key', { tenant: 'tenant-a', role: 'editor' }],
+    ['project-editor-key', { tenant: 'tenant-a', role: 'editor', projects: ['alpha'] }],
     ['admin-key', { tenant: 'tenant-a', role: 'admin' }],
   ]);
   const app = createApp(storage, {
@@ -639,6 +725,40 @@ test('auth middleware enforces credentials, roles, and tenant scoping', async ()
     },
   });
   assert.equal(viewerWrite.statusCode, 403);
+
+  const scopedBudgetList = await requestApp(app, {
+    url: '/api/budget/settings/list',
+    headers: { 'x-context-review-api-key': 'project-editor-key' },
+  });
+  assert.equal(scopedBudgetList.statusCode, 200);
+  assert.deepEqual(scopedBudgetList.body.items.map((item) => item.project), ['alpha']);
+
+  const forbiddenBudgetRead = await requestApp(app, {
+    url: '/api/budget/settings?project=beta',
+    headers: { 'x-context-review-api-key': 'project-editor-key' },
+  });
+  assert.equal(forbiddenBudgetRead.statusCode, 403);
+
+  const forbiddenBudgetWrite = await requestApp(app, {
+    method: 'POST',
+    url: '/api/budget/settings',
+    headers: { 'x-context-review-api-key': 'project-editor-key' },
+    body: {
+      project: 'beta',
+      thresholds: {
+        maxAvgInputTokensPerRequest: 3333,
+      },
+    },
+  });
+  assert.equal(forbiddenBudgetWrite.statusCode, 403);
+
+  const allowedBudgetRead = await requestApp(app, {
+    url: '/api/budget/settings?project=alpha',
+    headers: { 'x-context-review-api-key': 'project-editor-key' },
+  });
+  assert.equal(allowedBudgetRead.statusCode, 200);
+  assert.equal(allowedBudgetRead.body.project, 'alpha');
+  assert.equal(allowedBudgetRead.body.source, 'storage');
 
   const editorWrite = await requestApp(app, {
     method: 'POST',

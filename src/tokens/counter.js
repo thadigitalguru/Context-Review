@@ -18,6 +18,7 @@ function countTokens(value, options = {}) {
       characters: 0,
       method: 'heuristic_chars',
       confidence: 'low',
+      source: 'heuristic',
       text,
       label: options.label || 'generic',
     };
@@ -30,6 +31,7 @@ function countTokens(value, options = {}) {
       characters: text.length,
       method: exact.method,
       confidence: 'high',
+      source: 'tokenizer',
       text,
       label: options.label || 'generic',
     };
@@ -40,6 +42,7 @@ function countTokens(value, options = {}) {
     characters: text.length,
     method: 'heuristic_chars',
     confidence: 'low',
+    source: 'heuristic',
     text,
     label: options.label || 'generic',
   };

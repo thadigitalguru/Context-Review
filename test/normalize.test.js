@@ -9,6 +9,7 @@ const {
   validateNormalizedCapture,
   ensureNormalizedCompatibility,
   resolveSchemaCompatibility,
+  buildSchemaMigrationChecklist,
 } = require('../src/parser/normalize');
 
 function loadFixture(name) {
@@ -88,4 +89,19 @@ test('resolveSchemaCompatibility validates semver and major support', () => {
   assert.equal(resolveSchemaCompatibility('1.2.3').ok, true);
   assert.equal(resolveSchemaCompatibility('v1').ok, false);
   assert.equal(resolveSchemaCompatibility('3.0.0').ok, false);
+});
+
+test('schema migration checklist captures forward-compatibility planning vectors', () => {
+  const current = normalizeCapture(loadFixture('openai-capture.json'));
+  const supportedPlan = buildSchemaMigrationChecklist(current, '1.1.0');
+  const futurePlan = buildSchemaMigrationChecklist({ ...current, schemaVersion: '2.0.0' }, '2.0.0');
+
+  assert.equal(supportedPlan.canAutoMigrate, true);
+  assert.equal(supportedPlan.preservesUnknownFields, true);
+  assert.ok(Array.isArray(supportedPlan.checklist));
+  assert.ok(supportedPlan.checklist.length >= 4);
+  assert.equal(futurePlan.currentMajor, 2);
+  assert.equal(futurePlan.targetMajor, 2);
+  assert.equal(futurePlan.canAutoMigrate, false);
+  assert.match(futurePlan.notes.join(' '), /migration layer/i);
 });

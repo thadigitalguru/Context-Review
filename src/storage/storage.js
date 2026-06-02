@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { createStorageAdapter } = require('./adapters');
+const { loadBenchmarkHistory, summarizeBenchmarkHistory, recommendThresholds } = require('../analysis/benchmark-baselines');
 
 const ALL_CATS = ['system_prompts', 'tool_definitions', 'tool_calls', 'tool_results', 'assistant_text', 'user_text', 'thinking_blocks', 'media'];
 
@@ -16,6 +17,7 @@ class SessionStorage {
     this.dataFile = path.join(this.dataDir, 'sessions.json');
     this.eventFile = path.join(this.dataDir, 'events.ndjson');
     this.maintenanceHistoryFile = path.join(this.dataDir, 'maintenance-history.json');
+    this.budgetSettingsFile = path.join(this.dataDir, 'budget-settings.json');
     const created = createStorageAdapter({
       mode: options.adapterMode,
       dataDir: this.dataDir,
@@ -61,9 +63,11 @@ class SessionStorage {
       200,
     );
     this.maintenanceHistory = [];
+    this.budgetSettings = {};
     this.maintenanceTimer = null;
     this.loadFromDisk();
     this.loadMaintenanceHistory();
+    this.loadBudgetSettings();
     if (this.compactOnStart) {
       this.maybeCompactEventLog({ reason: 'startup' });
     }
@@ -323,6 +327,10 @@ class SessionStorage {
 
   getStorageStatus() {
     const benchmarkDir = process.env.CONTEXT_REVIEW_BENCHMARK_ARTIFACT_DIR || path.join(__dirname, '../../artifacts');
+    const benchmarkHistoryFile = path.join(benchmarkDir, 'benchmark-history', 'long-horizon-history.json');
+    const longHorizonHistory = loadBenchmarkHistory(benchmarkHistoryFile);
+    const longHorizonSummary = summarizeBenchmarkHistory(longHorizonHistory, ['filterMs', 'reportMs', 'compareMs', 'ciCheckMs']);
+    const longHorizonRecommended = recommendThresholds(longHorizonSummary, { headroom: 0.2, min: 1 });
     const base = {
       adapterMode: this.adapterMode,
       dataDir: this.dataDir,
@@ -346,6 +354,17 @@ class SessionStorage {
           longHorizonCICheckMaxMs: Number(process.env.CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS || 2500),
         },
         latest: loadLatestBenchmarkArtifacts(benchmarkDir),
+        calibration: {
+          historyFile: benchmarkHistoryFile,
+          historyCount: longHorizonSummary.count,
+          longHorizon: longHorizonSummary,
+          recommendedThresholds: {
+            filterMaxMs: longHorizonRecommended.filterMs || Number(process.env.CI_LONG_HORIZON_BENCH_MAX_FILTER_MS || 1400),
+            reportMaxMs: longHorizonRecommended.reportMs || Number(process.env.CI_LONG_HORIZON_BENCH_MAX_REPORT_MS || 5200),
+            compareMaxMs: longHorizonRecommended.compareMs || Number(process.env.CI_LONG_HORIZON_BENCH_MAX_COMPARE_MS || 3200),
+            ciCheckMaxMs: longHorizonRecommended.ciCheckMs || Number(process.env.CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS || 2500),
+          },
+        },
       },
       maintenance: {
         intervalMinutes: this.maintenanceIntervalMinutes,
@@ -425,6 +444,68 @@ class SessionStorage {
     }
   }
 
+  loadBudgetSettings() {
+    if (this.persistenceDisabled) return;
+    try {
+      if (!fs.existsSync(this.budgetSettingsFile)) return;
+      const raw = JSON.parse(fs.readFileSync(this.budgetSettingsFile, 'utf8'));
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+      this.budgetSettings = raw;
+    } catch {
+      this.budgetSettings = {};
+    }
+  }
+
+  saveBudgetSettings() {
+    if (this.persistenceDisabled) return;
+    try {
+      if (!fs.existsSync(this.dataDir)) fs.mkdirSync(this.dataDir, { recursive: true });
+      fs.writeFileSync(this.budgetSettingsFile, JSON.stringify(this.budgetSettings || {}, null, 2));
+    } catch {
+      // Non-fatal: budget settings are best-effort metadata.
+    }
+  }
+
+  getBudgetSettings(project) {
+    const key = String(project || 'default');
+    const settings = this.budgetSettings?.[key] || null;
+    return settings ? { project: key, thresholds: settings.thresholds || {}, updatedAt: settings.updatedAt || null } : null;
+  }
+
+  listBudgetSettings() {
+    return Object.values(this.budgetSettings || {})
+      .filter(Boolean)
+      .map((settings) => ({
+        project: settings.project,
+        thresholds: settings.thresholds || {},
+        updatedAt: settings.updatedAt || null,
+      }))
+      .sort((a, b) => String(a.project).localeCompare(String(b.project)));
+  }
+
+  upsertBudgetSettings(project, thresholds) {
+    const key = String(project || 'default');
+    const next = { ...(this.budgetSettings || {}) };
+    next[key] = {
+      project: key,
+      thresholds: sanitizeBudgetThresholds(thresholds),
+      updatedAt: Date.now(),
+    };
+    this.budgetSettings = next;
+    this.saveBudgetSettings();
+    return next[key];
+  }
+
+  clearBudgetSettings(project) {
+    const key = String(project || 'default');
+    const next = { ...(this.budgetSettings || {}) };
+    const existing = next[key] || null;
+    delete next[key];
+    this.budgetSettings = next;
+    this.saveBudgetSettings();
+    return existing;
+  }
+
   recordMaintenanceRun(result, reason) {
     const entry = {
       at: Date.now(),
@@ -440,6 +521,22 @@ class SessionStorage {
     }
     this.saveMaintenanceHistory();
   }
+}
+
+function sanitizeBudgetThresholds(thresholds) {
+  const src = thresholds && typeof thresholds === 'object' ? thresholds : {};
+  const parsed = {};
+  if (src.maxAvgInputTokensPerRequest !== undefined) parsed.maxAvgInputTokensPerRequest = toPositiveInt(src.maxAvgInputTokensPerRequest, 1500);
+  if (src.maxAvgCostPerRequest !== undefined) parsed.maxAvgCostPerRequest = toFiniteNumber(src.maxAvgCostPerRequest, 0.05, 0);
+  if (src.maxTotalCostPerProject !== undefined) parsed.maxTotalCostPerProject = toFiniteNumber(src.maxTotalCostPerProject, 1.0, 0);
+  if (src.maxSessionCost !== undefined) parsed.maxSessionCost = toFiniteNumber(src.maxSessionCost, 0.25, 0);
+  return parsed;
+}
+
+function toFiniteNumber(value, fallback, min = -Infinity) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.round(parsed * 1000000) / 1000000;
 }
 
 function sameAgent(session, agent) {

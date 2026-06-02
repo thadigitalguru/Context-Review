@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Context Review | LLM Context Intelligence for AI Platform Teams</title>
-  <meta name="description" content="See what your AI sees. Context Review helps AI platform teams control context bloat, enforce CI guardrails, and reduce LLM spend with evidence.">
+  <title>Context Review | Local-First LLM Context Intelligence</title>
+  <meta name="description" content="Context Review is the local-first evidence layer for LLM agents. See what filled the context window, forecast spend, enforce guardrails, and keep data on your machine.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2316a34a'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='16' font-weight='700'>CR</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,7 +16,7 @@
   <header class="topbar reveal">
     <div class="brand"><span class="brand-pill">CR</span>Context Review</div>
     <nav class="topnav">
-      <a href="#outcomes">Outcomes</a>
+      <a href="#why">Why</a>
       <a href="#workflow">Workflow</a>
       <a href="#proof">Proof</a>
       <a href="#cta" class="btn btn-ghost">Book Demo</a>
@@ -26,42 +26,126 @@
   <main>
     <section class="hero reveal">
       <div class="hero-copy">
-        <p class="eyebrow">FOR AI PLATFORM TEAMS</p>
-        <h1>Stop Shipping Prompt Regressions You Can’t See</h1>
+        <p class="eyebrow">LOCAL-FIRST CONTEXT INTELLIGENCE</p>
+        <h1>Stop Guessing What Filled the Context Window.</h1>
         <p class="lede">
-          Context Review turns invisible LLM request bloat into enforceable platform guardrails.
-          Track composition, simulate fixes, and fail CI when context spend drifts.
+          Context Review shows exactly what each LLM request carried, why it cost what it did,
+          and what to remove before the waste spreads across sessions or teams.
         </p>
-      <div class="hero-actions" id="cta">
-        <a class="btn btn-primary" href="mailto:thadigitalguru@gmail.com?subject=Context%20Review%20Demo">Book Demo</a>
-        <a class="btn btn-secondary" href="/app">Open Live Dashboard</a>
-      </div>
-        <p class="meta">Primary CTA: Book Demo • Built for engineering teams running LLM workflows at scale</p>
+        <div class="hero-actions" id="cta">
+          <a class="btn btn-primary" href="mailto:thadigitalguru@gmail.com?subject=Context%20Review%20Demo">Book Demo</a>
+          <a class="btn btn-secondary" href="/app">Open Live Dashboard</a>
+        </div>
+        <p class="meta">Local proxy + dashboard • No app refactor • Your traffic stays on your machine</p>
       </div>
       <div class="hero-panel">
         <div class="terminal">
           <div class="terminal-head">
             <span></span><span></span><span></span>
-            <code>ci/context-review-check</code>
+            <code>evidence/context-review</code>
           </div>
-          <pre><code>$ curl -X POST /api/analysis/refresh -d '{"days":[7,14]}'
-$ curl /api/ci/summary?days=7
+          <pre><code>$ curl /api/reports/summary?days=7
+$ curl /api/reports/compare?groupBy=project&amp;days=14
 $ curl -X POST /api/ci/check -d '{"maxInputInflationPct":15}'
 
-RESULT: failed
-- Input tokens/request grew by 22.3% (threshold 15%)
-- Average tool-definition share is 37.1% (threshold 35%)
-
-SUGGESTED FIX:
-- Remove 4 unused tools (~14.2K tokens saved)
-- Trim oversized tool result in turn 38 (~5.1K tokens saved)</code></pre>
+RESULT: warning
+- Context growth is recurring in project alpha
+- Tool definitions exceed the safe threshold
+- 5.1K tokens could be saved by trimming tool results</code></pre>
         </div>
       </div>
     </section>
 
+    <section class="stats reveal">
+      <article>
+        <h3>See</h3>
+        <p>What filled the context window by turn, category, tool, and model</p>
+      </article>
+      <article>
+        <h3>Forecast</h3>
+        <p>Turns remaining, growth trajectory, and overflow risk before it happens</p>
+      </article>
+      <article>
+        <h3>Prove</h3>
+        <p>Before/after savings, comparisons, and CI gates you can ship with confidence</p>
+      </article>
+    </section>
+
+    <section class="quick-setup reveal" id="why">
+      <h2>Why Teams Choose Context Review</h2>
+      <p>Most dashboards count tokens. Context Review explains the evidence behind them and keeps the data local by default.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>Evidence, not just metrics</h3>
+          <p>Inspect the exact prompt sections, tool calls, and tool results driving cost and risk.</p>
+        </article>
+        <article class="card">
+          <h3>Forecasting that matters</h3>
+          <p>See when a session, project, or agent workflow is trending toward overflow or budget drift.</p>
+        </article>
+        <article class="card">
+          <h3>Works across agents and teams</h3>
+          <p>Compare Claude Code, Codex, Aider, Gemini, and team-scoped sessions in one view.</p>
+        </article>
+        <article class="card">
+          <h3>Private by design</h3>
+          <p>Run locally, proxy traffic through your machine, and keep request data under your control.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="outcomes reveal" id="proof">
+      <h2>What Context Review Gives You</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Composition visibility</h3>
+          <p>See where the context is going: system prompts, tool schemas, tool results, text, thinking, and media.</p>
+        </article>
+        <article class="card">
+          <h3>Actionable remediation</h3>
+          <p>Simulate removing tools, trimming results, and compacting history before you make changes.</p>
+        </article>
+        <article class="card">
+          <h3>Cross-session comparisons</h3>
+          <p>Find recurring waste patterns by project, user, model, or provider with deep-link drill-down.</p>
+        </article>
+        <article class="card">
+          <h3>CI guardrails</h3>
+          <p>Block regressions with machine-readable summaries, thresholds, and long-horizon benchmark gates.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="workflow reveal" id="workflow">
+      <h2>How Teams Use It</h2>
+      <ol>
+        <li>
+          <span>1</span>
+          <div>
+            <h3>Route API traffic through the local proxy</h3>
+            <p>Point Anthropic, OpenAI, or Google tooling at Context Review with no code changes.</p>
+          </div>
+        </li>
+        <li>
+          <span>2</span>
+          <div>
+            <h3>Inspect what filled the request</h3>
+            <p>Review composition, findings, diffs, trends, and simulation deltas in one dashboard.</p>
+          </div>
+        </li>
+        <li>
+          <span>3</span>
+          <div>
+            <h3>Share the proof and enforce the guardrail</h3>
+            <p>Export reports, compare sessions, and fail CI before context drift becomes production waste.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
     <section class="quick-setup reveal">
       <h2>Quick Setup</h2>
-      <p>Keep your existing toolchain. Route API traffic through Context Review and inspect results in the dashboard.</p>
+      <p>Keep your existing toolchain. Context Review fits in as a local proxy and dashboard.</p>
       <div class="setup-grid">
         <article>
           <h3>1. Start Context Review</h3>
@@ -83,80 +167,16 @@ export OPENAI_BASE_URL=http://localhost:8080
 export GOOGLE_API_BASE_URL=http://localhost:8080</code></pre>
         </article>
         <article>
-          <h3>3. Use your tool normally</h3>
-          <p>Every request is captured and analyzed automatically. Open the dashboard for breakdowns, findings, simulations, trend alerts, and CI checks.</p>
+          <h3>3. Open the dashboard</h3>
+          <p>Review sessions, compare recurring waste, and export proof for your team or CI pipeline.</p>
           <a class="btn btn-secondary" href="/app">Go To Dashboard</a>
         </article>
       </div>
     </section>
 
-    <section class="stats reveal" id="proof">
-      <article>
-        <h3>32%</h3>
-        <p>Median context-token reduction after applying top recommendations</p>
-      </article>
-      <article>
-        <h3>&lt; 10m</h3>
-        <p>To wire into existing OpenAI/Anthropic/Gemini workflows</p>
-      </article>
-      <article>
-        <h3>CI-Ready</h3>
-        <p>Machine-readable summary + threshold-based regression gate</p>
-      </article>
-    </section>
-
-    <section class="outcomes reveal" id="outcomes">
-      <h2>Platform Outcomes, Not Just Charts</h2>
-      <div class="grid">
-        <article class="card">
-          <h3>Cost Governance</h3>
-          <p>See where prompt spend is actually going, by category, model, project, and session.</p>
-        </article>
-        <article class="card">
-          <h3>Reliability Control</h3>
-          <p>Catch context growth, oversized tool outputs, and overflow risk before production incidents.</p>
-        </article>
-        <article class="card">
-          <h3>CI Regression Blocking</h3>
-          <p>Fail builds when token inflation or tool-definition overhead crosses platform thresholds.</p>
-        </article>
-        <article class="card">
-          <h3>Actionable Remediation</h3>
-          <p>Simulate “remove tools”, “trim results”, and “compact history” before changing agents.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="workflow reveal" id="workflow">
-      <h2>How Teams Use Context Review</h2>
-      <ol>
-        <li>
-          <span>1</span>
-          <div>
-            <h3>Route traffic through the local proxy</h3>
-            <p>No application refactor required. Set API base URLs and capture starts immediately.</p>
-          </div>
-        </li>
-        <li>
-          <span>2</span>
-          <div>
-            <h3>Inspect findings and run what-if simulations</h3>
-            <p>Pinpoint exact waste sources and estimate before/after token and dollar impact.</p>
-          </div>
-        </li>
-        <li>
-          <span>3</span>
-          <div>
-            <h3>Enforce thresholds in CI</h3>
-            <p>Use refresh + summary + check endpoints to prevent silent context regression.</p>
-          </div>
-        </li>
-      </ol>
-    </section>
-
     <section class="final-cta reveal">
-      <h2>Build Faster AI Systems With Context Discipline</h2>
-      <p>If your team is scaling agent workflows, Context Review gives you the observability and guardrails your platform needs.</p>
+      <h2>Build Faster AI Systems With Less Guesswork</h2>
+      <p>Use Context Review to understand, forecast, and reduce LLM context spend without sending your data anywhere else.</p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="mailto:thadigitalguru@gmail.com?subject=Context%20Review%20Demo">Book Demo</a>
         <a class="btn btn-secondary" href="/app">Try the Dashboard</a>

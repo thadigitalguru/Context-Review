@@ -76,6 +76,9 @@
     if (type === 'long-horizon-benchmark') {
       return { payload: latest.longHorizonPerformance || null, filename: 'long-horizon-benchmark.json' };
     }
+    if (type === 'long-horizon-calibration') {
+      return { payload: opsSummary?.storage?.benchmarks?.calibration || null, filename: 'long-horizon-calibration.json' };
+    }
     if (type === 'api-slo') {
       return { payload: latest.apiSlo || null, filename: 'api-slo.json' };
     }

@@ -24,14 +24,14 @@ const CATEGORY_KEYS = [
 
 function createEmptyBreakdown(provider, agent) {
   return {
-    system_prompts: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    tool_definitions: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    tool_calls: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    tool_results: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    assistant_text: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    user_text: { tokens: 0, content: [], messageCount: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    thinking_blocks: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
-    media: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low' },
+    system_prompts: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    tool_definitions: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    tool_calls: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    tool_results: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    assistant_text: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    user_text: { tokens: 0, content: [], messageCount: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    thinking_blocks: { tokens: 0, content: [], percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
+    media: { tokens: 0, content: [], count: 0, percentage: 0, token_method: 'heuristic_chars', token_confidence: 'low', token_source: 'heuristic' },
     total_tokens: 0,
     model: '',
     provider,
@@ -68,6 +68,7 @@ function parseRequest(capture) {
       tokens: stats.tokens,
       token_method: stats.method,
       token_confidence: stats.confidence,
+      token_source: stats.source || 'heuristic',
       source: prompt.source,
     });
   });
@@ -81,6 +82,7 @@ function parseRequest(capture) {
       tokens: stats.tokens,
       token_method: stats.method,
       token_confidence: stats.confidence,
+      token_source: stats.source || 'heuristic',
       source: tool.source,
     });
   });
@@ -94,6 +96,7 @@ function parseRequest(capture) {
       tokens: stats.tokens,
       token_method: stats.method,
       token_confidence: stats.confidence,
+      token_source: stats.source || 'heuristic',
       msgIndex: item.source.msgIndex,
       partIndex: item.source.partIndex,
       source: item.source,
@@ -211,6 +214,7 @@ function extractResponseTokens(response, provider) {
         output: body.usage.output_tokens || 0,
         cacheCreation: body.usage.cache_creation_input_tokens || 0,
         cacheRead: body.usage.cache_read_input_tokens || 0,
+        source: 'provider_reported',
       };
     }
     if (provider === 'openai') {
@@ -218,6 +222,7 @@ function extractResponseTokens(response, provider) {
         input: body.usage.prompt_tokens || 0,
         output: body.usage.completion_tokens || 0,
         cacheRead: body.usage.prompt_tokens_details?.cached_tokens || 0,
+        source: 'provider_reported',
       };
     }
   }
@@ -227,6 +232,7 @@ function extractResponseTokens(response, provider) {
       input: body.usageMetadata.promptTokenCount || 0,
       output: body.usageMetadata.candidatesTokenCount || 0,
       cacheRead: body.usageMetadata.cachedContentTokenCount || 0,
+      source: 'provider_reported',
     };
   }
 
@@ -249,7 +255,7 @@ function summarizeTokenCounting(breakdown) {
     return {
       method: exactSample.token_method,
       confidence: 'high',
-      source: 'tokenizer',
+      source: exactSample.token_source || 'tokenizer',
     };
   }
 

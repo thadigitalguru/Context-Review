@@ -2,6 +2,12 @@ const { calculateCost, getContextWindow } = require('../cost/pricing');
 const { generateFindings } = require('../findings/findings');
 
 const TREND_CATEGORIES = ['system_prompts', 'tool_definitions', 'tool_calls', 'tool_results', 'assistant_text', 'user_text', 'thinking_blocks', 'media'];
+const DEFAULT_BUDGET_THRESHOLDS = Object.freeze({
+  maxAvgInputTokensPerRequest: 1500,
+  maxAvgCostPerRequest: 0.05,
+  maxTotalCostPerProject: 1.0,
+  maxSessionCost: 0.25,
+});
 
 function filterSessions(sessions, query) {
   const provider = query.provider ? String(query.provider).toLowerCase() : null;
@@ -132,6 +138,8 @@ function buildReportsSummary(storage, days) {
   const categoryAggregate = new Map();
   const unusedToolAggregate = new Map();
   const repeatedSystemBlocks = new Map();
+  const budgetRows = new Map();
+  const budgetThresholds = resolveBudgetThresholds();
 
   for (const session of sessions) {
     const captures = storage.getSessionCaptures(session.id);
@@ -176,7 +184,19 @@ function buildReportsSummary(storage, days) {
         repeatedSystemBlocks.set(key, current);
       }
     }
+
+    const projectKey = String(session.project || 'default');
+    const budgetRow = budgetRows.get(projectKey) || createBudgetRow(projectKey);
+    budgetRow.sessionCount += 1;
+    budgetRow.requestCount += session.requestCount || 0;
+    budgetRow.totalInputTokens += session.totalInputTokens || 0;
+    budgetRow.totalOutputTokens += session.totalOutputTokens || 0;
+    budgetRow.totalCost += cost.totalCost || 0;
+    budgetRow.maxSessionCost = Math.max(budgetRow.maxSessionCost, cost.totalCost || 0);
+    budgetRows.set(projectKey, budgetRow);
   }
+
+  const budgetSummary = buildBudgetSummary([...budgetRows.values()], budgetThresholds);
 
   return {
     generatedAt: now,
@@ -195,6 +215,79 @@ function buildReportsSummary(storage, days) {
     unusedTools: [...unusedToolAggregate.values()]
       .sort((a, b) => (b.tokens - a.tokens) || (b.count - a.count))
       .slice(0, 8),
+    budget: budgetSummary,
+  };
+}
+
+function buildBudgetSummary(rows, thresholds) {
+  const items = (Array.isArray(rows) ? rows : []).map((row) => {
+    const avgInputTokensPerRequest = row.requestCount > 0 ? Math.round(row.totalInputTokens / row.requestCount) : 0;
+    const avgCostPerRequest = row.requestCount > 0 ? roundMetric(row.totalCost / row.requestCount) : 0;
+    const alerts = [];
+    if (avgInputTokensPerRequest > thresholds.maxAvgInputTokensPerRequest) {
+      alerts.push({
+        type: 'input_tokens',
+        severity: 'warning',
+        message: `Average input tokens/request is ${avgInputTokensPerRequest}, above ${thresholds.maxAvgInputTokensPerRequest}.`,
+      });
+    }
+    if (avgCostPerRequest > thresholds.maxAvgCostPerRequest) {
+      alerts.push({
+        type: 'cost_per_request',
+        severity: 'warning',
+        message: `Average cost/request is $${avgCostPerRequest.toFixed(4)}, above $${thresholds.maxAvgCostPerRequest.toFixed(4)}.`,
+      });
+    }
+    if (row.totalCost > thresholds.maxTotalCostPerProject) {
+      alerts.push({
+        type: 'total_cost',
+        severity: 'high',
+        message: `Total cost $${row.totalCost.toFixed(4)} exceeds $${thresholds.maxTotalCostPerProject.toFixed(4)} for this window.`,
+      });
+    }
+    return {
+      project: row.project,
+      sessionCount: row.sessionCount,
+      requestCount: row.requestCount,
+      totalInputTokens: row.totalInputTokens,
+      totalOutputTokens: row.totalOutputTokens,
+      totalCost: roundMetric(row.totalCost),
+      maxSessionCost: roundMetric(row.maxSessionCost),
+      avgInputTokensPerRequest,
+      avgCostPerRequest,
+      alerts,
+      riskScore: alerts.length * 25 + (row.maxSessionCost > thresholds.maxSessionCost ? 15 : 0),
+    };
+  }).sort((a, b) => (b.riskScore - a.riskScore) || (b.totalCost - a.totalCost));
+
+  return {
+    thresholds,
+    items,
+    alerts: items.flatMap((item) => item.alerts.map((alert) => ({
+      project: item.project,
+      ...alert,
+    }))),
+  };
+}
+
+function resolveBudgetThresholds() {
+  return {
+    maxAvgInputTokensPerRequest: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_INPUT_TOKENS_PER_REQUEST || DEFAULT_BUDGET_THRESHOLDS.maxAvgInputTokensPerRequest),
+    maxAvgCostPerRequest: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_COST_PER_REQUEST || DEFAULT_BUDGET_THRESHOLDS.maxAvgCostPerRequest),
+    maxTotalCostPerProject: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_TOTAL_COST_PER_PROJECT || DEFAULT_BUDGET_THRESHOLDS.maxTotalCostPerProject),
+    maxSessionCost: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_SESSION_COST || DEFAULT_BUDGET_THRESHOLDS.maxSessionCost),
+  };
+}
+
+function createBudgetRow(project) {
+  return {
+    project,
+    sessionCount: 0,
+    requestCount: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCost: 0,
+    maxSessionCost: 0,
   };
 }
 
@@ -608,4 +701,7 @@ module.exports = {
   buildCISummary,
   runCICheck,
   buildCrossSessionComparison,
+  buildBudgetSummary,
+  resolveBudgetThresholds,
+  DEFAULT_BUDGET_THRESHOLDS,
 };
