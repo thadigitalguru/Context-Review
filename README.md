@@ -298,6 +298,16 @@ npm run ci:long-horizon-calibrate
 
 The benchmark seeds 30d+ synthetic history (default 45 days) and benchmarks filter/report/cross-session-compare/CI-check paths. It fails on baseline budget regressions (`CI_LONG_HORIZON_BENCH_MAX_FILTER_MS`, `CI_LONG_HORIZON_BENCH_MAX_REPORT_MS`, `CI_LONG_HORIZON_BENCH_MAX_COMPARE_MS`, `CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS`) and writes `artifacts/long-horizon-benchmark.json`. The calibration command reads benchmark history and writes recommended thresholds to `artifacts/long-horizon-calibration.json`.
 
+History-backed budgets: CI caches `artifacts/benchmark-history/` across runs and sets `CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS=1`, so gates tighten toward real p95s. Tightened budgets are clamped between a floor (`CI_LONG_HORIZON_BENCH_FLOOR_RATIO`, default `0.05` of the static maxima, flake-resistant on slower runners) and the static maxima as a ceiling (history can never loosen the gate).
+
+For recovery proof against production-like event logs:
+
+```bash
+npm run ci:recovery-proof
+```
+
+This command seeds realistic multi-provider volume in an isolated temp dir, simulates torn tail writes and snapshot loss, verifies boot auto-recovery and the backup-restore rollback path, then verifies post-recovery compaction stability — writing `artifacts/recovery-proof.json` (size via `CI_RECOVERY_PROOF_CAPTURES`, default `200`).
+
 For API response SLO governance:
 
 ```bash

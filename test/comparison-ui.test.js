@@ -7,6 +7,7 @@ const {
   parseComparisonFilter,
   buildSessionsApiPath,
   filterSessionsByIds,
+  describeComparisonFilter,
   clearComparisonFilterFromSearch,
   serializeComparisonConfig,
   parseComparisonConfig,
@@ -109,8 +110,17 @@ test('comparison preset helpers persist saved drill-down workflows', () => {
   assert.equal(removed.length, 0);
 });
 
-function makeStorage() {
-  const map = new Map();
+test('describeComparisonFilter optionally includes the match count', () => {
+  const filter = buildComparisonFilterFromRow({ groupBy: 'project', group: 'alpha', windowDays: 7, now: 1_700_000_000_000 });
+  assert.equal(describeComparisonFilter(filter), 'project: alpha (7d)');
+  assert.equal(describeComparisonFilter(filter, { sessionCount: 3 }), 'project: alpha (7d) · 3 sessions');
+  assert.equal(describeComparisonFilter(filter, { sessionCount: 1 }), 'project: alpha (7d) · 1 session');
+  assert.equal(describeComparisonFilter(filter, { sessionCount: 0 }), 'project: alpha (7d) · 0 sessions');
+  assert.equal(describeComparisonFilter(null), '');
+  assert.equal(describeComparisonFilter({ active: false }), '');
+});
+
+function makeStorage() {  const map = new Map();
   return {
     getItem(key) {
       return map.has(key) ? map.get(key) : null;

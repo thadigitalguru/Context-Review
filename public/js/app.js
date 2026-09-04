@@ -336,7 +336,9 @@ function renderTurnNav() {
 
 function renderSidebar() {
   const list = document.getElementById('session-list');
-  const filterLabel = comparisonHelpers ? comparisonHelpers.describeComparisonFilter(state.comparisonFilter) : '';
+  const filterLabel = comparisonHelpers
+    ? comparisonHelpers.describeComparisonFilter(state.comparisonFilter, { sessionCount: state.sessions.length })
+    : '';
   const filterHTML = filterLabel
     ? `<div style="padding:8px 6px 10px 6px;border-bottom:1px solid var(--border-subtle);margin-bottom:6px">
       <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Filtered View</div>
@@ -949,7 +951,9 @@ async function changeBudgetProject(project) {
 function renderBudgetGuardrails() {
   const report = state.reportSummary;
   const budget = report?.budget;
-  if (!budget || !Array.isArray(budget.items) || budget.items.length === 0) return '';
+  // Render even with zero project rows so thresholds can be configured
+  // proactively; per-card empty states cover the no-data case.
+  if (!budget) return '';
 
   const view = budgetHelpers ? budgetHelpers.buildBudgetView(budget, state.budgetThresholds) : budget;
   const thresholds = view?.thresholds || budget.thresholds || {};

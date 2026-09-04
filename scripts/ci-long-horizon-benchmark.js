@@ -25,6 +25,26 @@ const MAX_REPORT_MS = Number(process.env.CI_LONG_HORIZON_BENCH_MAX_REPORT_MS || 
 const MAX_COMPARE_MS = Number(process.env.CI_LONG_HORIZON_BENCH_MAX_COMPARE_MS || 3200);
 const MAX_CI_CHECK_MS = Number(process.env.CI_LONG_HORIZON_BENCH_MAX_CI_CHECK_MS || 2500);
 
+function resolveFloorRatio(raw) {
+  const ratio = Number(raw !== undefined ? raw : process.env.CI_LONG_HORIZON_BENCH_FLOOR_RATIO || 0.05);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 0.05;
+}
+
+// History-tightened budgets are clamped: floors keep them flake-resistant on
+// slower runners, static maxima remain a ceiling so history can never loosen
+// the gate.
+function resolveEffectiveThresholds(recommended, maxes, floorRatio) {
+  const ratio = resolveFloorRatio(floorRatio);
+  const floor = (value) => Math.ceil(value * ratio);
+  const clamp = (value, max) => Math.min(Math.max(value || max, floor(max)), max);
+  return {
+    filterMaxMs: clamp(recommended?.filterMaxMs, maxes.filterMaxMs),
+    reportMaxMs: clamp(recommended?.reportMaxMs, maxes.reportMaxMs),
+    compareMaxMs: clamp(recommended?.compareMaxMs, maxes.compareMaxMs),
+    ciCheckMaxMs: clamp(recommended?.ciCheckMaxMs, maxes.ciCheckMaxMs),
+  };
+}
+
 function main() {
   try {
     const storage = new SessionStorage({ persistenceDisabled: true });
@@ -64,19 +84,23 @@ function main() {
     const historySummary = summarizeBenchmarkHistory(historyBefore, ['filterMs', 'reportMs', 'compareMs', 'ciCheckMs']);
     const recommendedThresholds = recommendThresholds(historySummary, { headroom: 0.2, min: 1 });
     const useBaselineBudgets = String(process.env.CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS || '') === '1';
+    const staticThresholds = {
+      filterMaxMs: MAX_FILTER_MS,
+      reportMaxMs: MAX_REPORT_MS,
+      compareMaxMs: MAX_COMPARE_MS,
+      ciCheckMaxMs: MAX_CI_CHECK_MS,
+    };
     const effectiveThresholds = useBaselineBudgets && historySummary.count > 0
-      ? {
-          filterMaxMs: recommendedThresholds.filterMs || MAX_FILTER_MS,
-          reportMaxMs: recommendedThresholds.reportMs || MAX_REPORT_MS,
-          compareMaxMs: recommendedThresholds.compareMs || MAX_COMPARE_MS,
-          ciCheckMaxMs: recommendedThresholds.ciCheckMs || MAX_CI_CHECK_MS,
-        }
-      : {
-          filterMaxMs: MAX_FILTER_MS,
-          reportMaxMs: MAX_REPORT_MS,
-          compareMaxMs: MAX_COMPARE_MS,
-          ciCheckMaxMs: MAX_CI_CHECK_MS,
-        };
+      ? resolveEffectiveThresholds(
+          {
+            filterMaxMs: recommendedThresholds.filterMs,
+            reportMaxMs: recommendedThresholds.reportMs,
+            compareMaxMs: recommendedThresholds.compareMs,
+            ciCheckMaxMs: recommendedThresholds.ciCheckMs,
+          },
+          staticThresholds,
+        )
+      : { ...staticThresholds };
 
     const out = {
       checkedAt: new Date().toISOString(),
@@ -253,4 +277,6 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { resolveEffectiveThresholds, resolveFloorRatio };

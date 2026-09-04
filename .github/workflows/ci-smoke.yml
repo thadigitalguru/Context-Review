@@ -44,8 +44,25 @@ jobs:
       - name: Analysis Benchmark Gate
         run: npm run ci:analysis-benchmark
 
+      - name: Restore Long-Horizon Benchmark History
+        uses: actions/cache@v4
+        with:
+          path: artifacts/benchmark-history/long-horizon-history.json
+          key: long-horizon-history-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            long-horizon-history-${{ runner.os }}-
+
       - name: Long Horizon Benchmark Gate
         run: npm run ci:long-horizon-benchmark
+        env:
+          CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS: 1
+
+      - name: Long Horizon Calibration
+        if: always()
+        run: npm run ci:long-horizon-calibrate
+
+      - name: Recovery Proof Gate
+        run: npm run ci:recovery-proof
 
       - name: API SLO Gate
         run: npm run ci:api-slo
@@ -88,6 +105,22 @@ jobs:
         with:
           name: long-horizon-benchmark
           path: artifacts/long-horizon-benchmark.json
+          if-no-files-found: warn
+
+      - name: Upload Long Horizon Calibration Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-horizon-calibration
+          path: artifacts/long-horizon-calibration.json
+          if-no-files-found: warn
+
+      - name: Upload Recovery Proof Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-proof
+          path: artifacts/recovery-proof.json
           if-no-files-found: warn
 
       - name: Upload API SLO Artifact

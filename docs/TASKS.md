@@ -123,3 +123,26 @@ npm audit --audit-level=high
 ## Delegation / Worktree Notes
 - Independent batches (T1 vs T4 vs T10) may run in parallel agents with non-overlapping files; each must return findings, files inspected/changed, tests run + results, risks, next steps.
 - Review all diffs before merge; use isolated worktrees if supported. No production changes, no destructive migrations, no secret exposure.
+
+## Phase 2 — Calibration, Recovery Proof, Workflow Polish (completed 2026-09-04)
+
+### P1. Long-horizon calibration from real history
+- Evidence: history held 2 runs while static thresholds sat 50–100x above actuals; nothing consumed calibration output.
+- Changed: `scripts/ci-long-horizon-benchmark.js` (`resolveEffectiveThresholds` with floor ratio default 0.05, static ceiling; `require.main` guard + exports), CI caches `artifacts/benchmark-history/`, runs benchmark with `CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS=1`, adds calibrate step + calibration artifact.
+- Local history grown to 7 runs; live clamped budgets 70/260/160/125 (recommended 2/27/57/38).
+- Tests: `test/long-horizon-budgets.test.js` (4 tests: floors, ceiling, fallback, passthrough).
+- Validate: `CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS=1 npm run ci:long-horizon-benchmark`, `npm run ci:long-horizon-calibrate`.
+- Status: completed. Note: two same-family typos (`maxes.ciCheckMs`, `recommended?.ciCheckMs` vs `*MaxMs` keys) were caught by the new tests before merge.
+
+### P2. Recovery/rollback proof on production-like logs
+- Evidence: `ops:recovery-drill` was dry-run only; no coverage for torn writes at volume or the documented restore-backup rollback.
+- Changed: new `scripts/ci-recovery-proof.js` (`npm run ci:recovery-proof`, 200 captures default): torn tail + snapshot intact (zero loss), torn tail + snapshot loss (loses only torn write), backup-restore rollback (clean replay, `recovered=false`), post-recovery compaction stability. CI gate + artifact wired.
+- Tests: `test/ci-recovery-proof.test.js` (end-to-end, 40 captures).
+- Validate: `npm run ci:recovery-proof` (10/10 checks).
+- Status: completed.
+
+### P3. Drill-down + budget workflow polish
+- Changed: `describeComparisonFilter` accepts `{sessionCount}` (backward compatible) and the sidebar chip shows match count; Budget Guardrails section now renders with zero project rows (proactive threshold setup) instead of vanishing — per-card empty states already covered the rest.
+- Tests: `test/comparison-ui.test.js` +1 (count variants, singular/plural/zero, inactive).
+- Validate: `npm test -- test/comparison-ui.test.js`, `node --check public/js/app.js`.
+- Status: completed.

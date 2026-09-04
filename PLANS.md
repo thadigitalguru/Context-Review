@@ -81,8 +81,11 @@ Completed highlights:
 Remaining focus areas:
 
 - collect real-world CI history and periodically refresh long-horizon baseline thresholds
+  - DONE 2026-09-04: history-backed budgets with floor/ceiling clamps (`CI_LONG_HORIZON_BENCH_USE_BASELINE_BUDGETS=1`, `CI_LONG_HORIZON_BENCH_FLOOR_RATIO`), CI history cache + calibrate step, `test/long-horizon-budgets.test.js`. Next: watch cache-hit rates and re-tune the floor ratio after several CI weeks.
 - exercise recovery/rollback validation against production-like event logs, not only dry-run fixtures
+  - DONE 2026-09-04: `npm run ci:recovery-proof` (torn tail, snapshot loss, backup-restore rollback, compaction stability) as a CI gate with artifact. Next: run the same scenarios against a copy of a real operator `data/` dir before major storage changes.
 - polish drill-down and budget workflows after user feedback from repeated local use
+  - DONE 2026-09-04 (first pass): drill-down match counts in the filter chip; Budget Guardrails renders with zero rows for proactive setup. Next: collect usage feedback on Insights tab cost (compare refetch each poll) and budget local-vs-server conflicts.
 
 ## Phase 1: Make The Data Trustworthy
 

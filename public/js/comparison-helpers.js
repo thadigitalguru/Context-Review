@@ -120,12 +120,17 @@
     return (sessions || []).filter((session) => allow.has(session.id));
   }
 
-  function describeComparisonFilter(filter) {
+  function describeComparisonFilter(filter, options = {}) {
     if (!filter || filter.active !== true) return '';
     const window = Number.isFinite(Number(filter.windowDays)) ? `${Math.floor(Number(filter.windowDays))}d` : 'window';
     const scope = String(filter.groupBy || 'project');
     const group = String(filter.group || 'unknown');
-    return `${scope}: ${group} (${window})`;
+    const base = `${scope}: ${group} (${window})`;
+    const count = Number(options.sessionCount);
+    if (Number.isFinite(count) && count >= 0) {
+      return `${base} · ${count} session${count === 1 ? '' : 's'}`;
+    }
+    return base;
   }
 
   function clearComparisonFilterFromSearch(search) {
