@@ -1,6 +1,7 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const { redactHeaders } = require('./redact');
 
 const PROVIDER_MAP = {
   anthropic: {
@@ -11,7 +12,7 @@ const PROVIDER_MAP = {
   openai: {
     name: 'openai',
     target: 'https://api.openai.com',
-    pathMatch: /^\/v1\/chat\/completions/,
+    pathMatch: /^\/v1\/(chat\/completions|responses)/,
   },
   google: {
     name: 'google',
@@ -19,6 +20,21 @@ const PROVIDER_MAP = {
     pathMatch: /^\/v1beta\/models/,
   },
 };
+
+const DEFAULT_MAX_BODY_BYTES = 25 * 1024 * 1024;
+const DEFAULT_MAX_STREAM_CHARS = 8 * 1024 * 1024;
+
+function resolveProxyLimits(env = process.env) {
+  const maxBodyBytes = toPositiveInt(env.CONTEXT_REVIEW_PROXY_MAX_BODY_BYTES, DEFAULT_MAX_BODY_BYTES);
+  const maxStreamChars = toPositiveInt(env.CONTEXT_REVIEW_PROXY_MAX_STREAM_CHARS, DEFAULT_MAX_STREAM_CHARS);
+  return { maxBodyBytes, maxStreamChars };
+}
+
+function toPositiveInt(raw, fallback) {
+  const value = Number(raw);
+  if (Number.isFinite(value) && value > 0) return Math.floor(value);
+  return fallback;
+}
 
 function detectProvider(reqPath) {
   for (const key of Object.keys(PROVIDER_MAP)) {
@@ -39,19 +55,43 @@ function isStreamingRequest(headers, body, reqUrl) {
   return false;
 }
 
-function createProxyServer(onCapture) {
+function createProxyServer(onCapture, options = {}) {
+  const limits = { ...resolveProxyLimits(), ...(options.limits || {}) };
   const server = http.createServer((req, res) => {
     const provider = detectProvider(req.url);
 
     if (!provider) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unknown API path. Supported: Anthropic (/v1/messages), OpenAI (/v1/chat/completions), Google (/v1beta/models/*)' }));
+      res.end(JSON.stringify({ error: 'Unknown API path. Supported: Anthropic (/v1/messages), OpenAI (/v1/chat/completions, /v1/responses), Google (/v1beta/models/*)' }));
       return;
     }
 
+    req.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Bad request', message: 'Inbound request error' }));
+      } else {
+        try { res.end(); } catch { /* socket already gone */ }
+      }
+    });
+
     let bodyChunks = [];
-    req.on('data', chunk => bodyChunks.push(chunk));
+    let bodyBytes = 0;
+    let bodyTooLarge = false;
+    req.on('data', chunk => {
+      bodyBytes += chunk.length;
+      if (bodyBytes > limits.maxBodyBytes) {
+        bodyTooLarge = true;
+        return;
+      }
+      bodyChunks.push(chunk);
+    });
     req.on('end', () => {
+      if (bodyTooLarge) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Payload Too Large', message: `Request body exceeds ${limits.maxBodyBytes} bytes` }));
+        return;
+      }
       const rawBody = Buffer.concat(bodyChunks);
       let parsedBody = null;
       try {
@@ -81,7 +121,7 @@ function createProxyServer(onCapture) {
         request: {
           method: req.method,
           path: req.url,
-          headers: { ...req.headers },
+          headers: redactHeaders({ ...req.headers }),
           body: parsedBody,
         },
         response: {
@@ -99,37 +139,82 @@ function createProxyServer(onCapture) {
 
       proxyReq.on('response', (proxyRes) => {
         captureData.response.statusCode = proxyRes.statusCode;
-        captureData.response.headers = { ...proxyRes.headers };
+        captureData.response.headers = redactHeaders({ ...proxyRes.headers });
 
         if (isStreaming) {
           res.writeHead(proxyRes.statusCode, proxyRes.headers);
           const streamChunks = [];
+          let streamChars = 0;
+          let streamTruncated = false;
 
           proxyRes.on('data', (chunk) => {
-            res.write(chunk);
-            streamChunks.push(chunk.toString());
+            try { res.write(chunk); } catch { /* client gone */ }
+            const text = chunk.toString();
+            if (!streamTruncated) {
+              if (streamChars + text.length > limits.maxStreamChars) {
+                streamTruncated = true;
+              } else {
+                streamChars += text.length;
+                streamChunks.push(text);
+              }
+            }
+          });
+
+          proxyRes.on('error', () => {
+            try { res.end(); } catch { /* client gone */ }
+            captureData.response.body = parseStreamedResponse(streamChunks, provider.name);
+            captureData.upstreamError = true;
+            if (streamTruncated) captureData.truncated = true;
+            safeCapture(onCapture, captureData);
           });
 
           proxyRes.on('end', () => {
-            res.end();
+            try { res.end(); } catch { /* client gone */ }
             captureData.response.body = parseStreamedResponse(streamChunks, provider.name);
             captureData.response.rawStream = streamChunks.join('');
-            onCapture(captureData);
+            if (streamTruncated) captureData.truncated = true;
+            safeCapture(onCapture, captureData);
           });
         } else {
           const responseChunks = [];
-          proxyRes.on('data', chunk => responseChunks.push(chunk));
+          let responseBytes = 0;
+          proxyRes.on('data', chunk => {
+            responseBytes += chunk.length;
+            responseChunks.push(chunk);
+          });
+          proxyRes.on('error', () => {
+            if (!res.headersSent) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Proxy error', message: 'Upstream response error' }));
+            } else {
+              try { res.end(); } catch { /* client gone */ }
+            }
+          });
           proxyRes.on('end', () => {
             const responseBody = Buffer.concat(responseChunks);
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
-            res.end(responseBody);
-
-            try {
-              captureData.response.body = JSON.parse(responseBody.toString());
-            } catch (e) {
-              captureData.response.body = responseBody.toString();
+            if (!res.headersSent) {
+              res.writeHead(proxyRes.statusCode, proxyRes.headers);
             }
-            onCapture(captureData);
+            // Always forward the complete upstream body for fidelity; truncate
+            // only the captured copy when it exceeds the capture budget.
+            try { res.end(responseBody); } catch { /* client gone */ }
+
+            if (responseBytes > limits.maxBodyBytes) {
+              captureData.truncated = true;
+              const preview = responseBody.slice(0, limits.maxBodyBytes).toString();
+              try {
+                captureData.response.body = JSON.parse(preview);
+              } catch (e) {
+                captureData.response.body = preview;
+              }
+            } else {
+              try {
+                captureData.response.body = JSON.parse(responseBody.toString());
+              } catch (e) {
+                captureData.response.body = responseBody.toString();
+              }
+            }
+            safeCapture(onCapture, captureData);
           });
         }
       });
@@ -151,6 +236,14 @@ function createProxyServer(onCapture) {
   });
 
   return server;
+}
+
+function safeCapture(onCapture, captureData) {
+  try {
+    onCapture(captureData);
+  } catch (err) {
+    console.error(`Capture handler error: ${err && err.message ? err.message : err}`);
+  }
 }
 
 function parseStreamedResponse(chunks, provider) {
@@ -190,6 +283,13 @@ function parseStreamedResponse(chunks, provider) {
           events.push(data);
         } catch (e) {}
       }
+    }
+    if (events.length === 0 && combined.trim().length > 0) {
+      // Non-SSE JSON payload (e.g. unary GenerateContent over a stream URL).
+      try {
+        const payload = JSON.parse(combined.trim());
+        if (payload && (payload.candidates || payload.usageMetadata)) return payload;
+      } catch (e) {}
     }
     if (events.length > 0) {
       const result = { candidates: [], usageMetadata: {} };
@@ -261,6 +361,26 @@ function reconstructOpenAIStream(events) {
 
   for (const event of events) {
     if (event.model) result.model = event.model;
+    if (typeof event.delta === 'string' && event.delta) {
+      // OpenAI Responses API: response.output_text.delta events carry { delta, ... }.
+      result.choices[0].message.content += event.delta;
+    }
+    if (event.response && typeof event.response === 'object') {
+      if (typeof event.response.output_text === 'string' && event.response.output_text) {
+        result.choices[0].message.content += event.response.output_text;
+      }
+      if (Array.isArray(event.response.output)) {
+        for (const item of event.response.output) {
+          if (item && Array.isArray(item.content)) {
+            for (const part of item.content) {
+              if (part && (part.text || part.output_text)) {
+                result.choices[0].message.content += part.text || part.output_text;
+              }
+            }
+          }
+        }
+      }
+    }
     if (event.choices && event.choices[0] && event.choices[0].delta) {
       const delta = event.choices[0].delta;
       if (delta.content) result.choices[0].message.content += delta.content;
@@ -302,4 +422,7 @@ module.exports = {
   reconstructAnthropicStream,
   reconstructOpenAIStream,
   isStreamingRequest,
+  resolveProxyLimits,
+  DEFAULT_MAX_BODY_BYTES,
+  DEFAULT_MAX_STREAM_CHARS,
 };

@@ -10,11 +10,15 @@ function createAuthMiddleware(options = {}) {
   const requireAuth = options.requireAuth !== undefined
     ? options.requireAuth
     : process.env.CONTEXT_REVIEW_REQUIRE_AUTH === '1';
+  const requireAuthForMutations = options.requireAuthForMutations !== undefined
+    ? options.requireAuthForMutations
+    : process.env.CONTEXT_REVIEW_REQUIRE_AUTH_FOR_MUTATIONS === '1';
   const apiKeys = normalizeApiKeys(options.apiKeys) || parseApiKeys(process.env.CONTEXT_REVIEW_API_KEYS);
   const jwtSecret = options.jwtSecret || process.env.CONTEXT_REVIEW_JWT_SECRET || '';
 
   return function authMiddleware(req, res, next) {
     const auth = resolveAuth(req, { apiKeys, jwtSecret });
+    req.authRequireMutations = Boolean(requireAuthForMutations);
     if (!auth.ok) {
       if (!requireAuth) {
         req.auth = null;
@@ -29,7 +33,11 @@ function createAuthMiddleware(options = {}) {
 
 function requireRole(minRole) {
   return function roleMiddleware(req, res, next) {
-    if (!req.auth) return next();
+    if (!req.auth) {
+      const strict = Boolean(req.authRequireMutations) || process.env.CONTEXT_REVIEW_REQUIRE_AUTH_FOR_MUTATIONS === '1';
+      if (strict) return res.status(401).json({ error: 'Authentication required for this operation' });
+      return next();
+    }
     if (hasRole(req.auth.role, minRole)) return next();
     return res.status(403).json({ error: `Insufficient role: requires ${minRole}` });
   };

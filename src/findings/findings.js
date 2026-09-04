@@ -1,4 +1,4 @@
-const { findPricing, getContextWindow } = require('../cost/pricing');
+const { findPricing, getContextWindow, isKnownModel } = require('../cost/pricing');
 const { countTokens, stringifyValue } = require('../tokens/counter');
 
 function generateFindings(session, captures) {
@@ -12,6 +12,7 @@ function generateFindings(session, captures) {
   const captureId = lastCapture.id;
 
   const contextWindow = getContextWindow(breakdown.model);
+  const modelKnown = isKnownModel(breakdown.model);
   const usagePercent = (breakdown.total_tokens / contextWindow) * 100;
 
   if (usagePercent > 80) {
@@ -20,13 +21,13 @@ function generateFindings(session, captures) {
       category: 'overflow',
       severity: 'critical',
       title: `Context utilization critical: ${Math.round(usagePercent)}%`,
-      description: `${formatTokens(breakdown.total_tokens)} of ${formatTokens(contextWindow)} tokens. Overflow risk is elevated, and older messages may be dropped or summarized.`,
+      description: `${formatTokens(breakdown.total_tokens)} of ${formatTokens(contextWindow)} tokens. Overflow risk is elevated, and older messages may be dropped or summarized.${modelKnown ? '' : ' Model window is a fallback estimate (unknown model); treat this reading as low-confidence.'}`,
       suggestion: 'Start a new session or reduce context by removing conversation history.',
       captureId,
-      usage: { current: breakdown.total_tokens, max: contextWindow, percent: Math.round(usagePercent) },
+      usage: { current: breakdown.total_tokens, max: contextWindow, percent: Math.round(usagePercent), modelConfidence: modelKnown ? 'high' : 'low' },
       estimatedSavings: {
         tokens: Math.round(breakdown.total_tokens - (contextWindow * 0.5)),
-        confidence: 'moderate',
+        confidence: modelKnown ? 'moderate' : 'low',
       },
       recommendation: buildRecommendation({
         summary: 'Compact history or start a fresh session to reduce overflow risk.',
@@ -47,13 +48,13 @@ function generateFindings(session, captures) {
       category: 'overflow',
       severity: 'low',
       title: `Context utilization elevated: ${Math.round(usagePercent)}%`,
-      description: `Using ${formatTokens(breakdown.total_tokens)} of ${formatTokens(contextWindow)} tokens. At current rate, approximately ${estimatedTurnsLeft} turns remaining before overflow.`,
+      description: `Using ${formatTokens(breakdown.total_tokens)} of ${formatTokens(contextWindow)} tokens. At current rate, approximately ${estimatedTurnsLeft} turns remaining before overflow.${modelKnown ? '' : ' Model window is a fallback estimate (unknown model); treat this reading as low-confidence.'}`,
       suggestion: 'Monitor context growth. Consider starting a new session if working on a long task.',
       captureId,
-      usage: { current: breakdown.total_tokens, max: contextWindow, percent: Math.round(usagePercent), estimatedTurnsLeft },
+      usage: { current: breakdown.total_tokens, max: contextWindow, percent: Math.round(usagePercent), estimatedTurnsLeft, modelConfidence: modelKnown ? 'high' : 'low' },
       estimatedSavings: {
         tokens: Math.max(0, Math.round(breakdown.total_tokens - (contextWindow * 0.5))),
-        confidence: 'moderate',
+        confidence: modelKnown ? 'moderate' : 'low',
       },
       recommendation: buildRecommendation({
         summary: 'Proactively compact history before context approaches the hard limit.',

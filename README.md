@@ -105,6 +105,12 @@ Role behavior:
 
 Project scopes are also enforced when present in the auth claim (`projects` / `project_scope`), including budget settings reads, exports, imports, and resets.
 
+For exposed deployments, deny anonymous mutations while keeping local reads open:
+
+```bash
+export CONTEXT_REVIEW_REQUIRE_AUTH_FOR_MUTATIONS=1
+```
+
 ## What It Shows
 
 ### 8-Category Context Breakdown
@@ -160,7 +166,7 @@ Per-model pricing with cache-aware cost calculation for Anthropic, OpenAI, and G
 | Provider | Path | Tools Detected |
 |---|---|---|
 | **Anthropic** | `/v1/messages` | Claude Code, Cursor |
-| **OpenAI** | `/v1/chat/completions` | Codex, Aider, GitHub Copilot |
+| **OpenAI** | `/v1/chat/completions`, `/v1/responses` | Codex, Aider, GitHub Copilot |
 | **Google** | `/v1beta/models/*` | Gemini CLI |
 
 Agent auto-detection works via user-agent headers and system prompt fingerprinting.

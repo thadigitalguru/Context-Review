@@ -1,3 +1,8 @@
+// Prices in USD per 1M tokens. Update PRICING_UPDATED_AT whenever values change
+// so cost drift is visible; unknown models fall back to family/default pricing
+// and must be treated as low-confidence (see isKnownModel).
+const PRICING_VERSION = '2026-05-01';
+const PRICING_UPDATED_AT = '2026-05-01';
 const MODEL_PRICING = {
   'claude-sonnet-4-20250514': { input: 3.00, output: 15.00, cacheWrite: 3.75, cacheRead: 0.30, contextWindow: 200000 },
   'claude-3-5-sonnet-20241022': { input: 3.00, output: 15.00, cacheWrite: 3.75, cacheRead: 0.30, contextWindow: 200000 },
@@ -29,8 +34,11 @@ function findPricing(model) {
 
   if (MODEL_PRICING[model]) return MODEL_PRICING[model];
 
-  for (const [key, pricing] of Object.entries(MODEL_PRICING)) {
-    if (model.includes(key) || key.includes(model)) return pricing;
+  // Longest-key first so specific variants win (e.g. gpt-4o-mini before gpt-4o,
+  // o1-mini before o1) regardless of table insertion order.
+  const keys = Object.keys(MODEL_PRICING).sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    if (model.includes(key) || key.includes(model)) return MODEL_PRICING[key];
   }
 
   if (model.includes('claude')) {
@@ -90,4 +98,14 @@ function getContextWindow(model) {
   return pricing.contextWindow;
 }
 
-module.exports = { calculateCost, findPricing, getContextWindow, MODEL_PRICING };
+function isKnownModel(model) {
+  if (!model || model === 'unknown') return false;
+  if (MODEL_PRICING[model]) return true;
+  return Object.keys(MODEL_PRICING).some((key) => model.includes(key) || key.includes(model));
+}
+
+function getPricingMetadata() {
+  return { version: PRICING_VERSION, updatedAt: PRICING_UPDATED_AT, modelCount: Object.keys(MODEL_PRICING).length };
+}
+
+module.exports = { calculateCost, findPricing, getContextWindow, isKnownModel, getPricingMetadata, MODEL_PRICING, PRICING_VERSION, PRICING_UPDATED_AT };

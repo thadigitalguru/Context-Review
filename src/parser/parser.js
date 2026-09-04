@@ -219,8 +219,8 @@ function extractResponseTokens(response, provider) {
     }
     if (provider === 'openai') {
       return {
-        input: body.usage.prompt_tokens || 0,
-        output: body.usage.completion_tokens || 0,
+        input: body.usage.prompt_tokens || body.usage.input_tokens || 0,
+        output: body.usage.completion_tokens || body.usage.output_tokens || 0,
         cacheRead: body.usage.prompt_tokens_details?.cached_tokens || 0,
         source: 'provider_reported',
       };

@@ -246,14 +246,21 @@ function normalizeOpenAI(body, normalized) {
   if (Array.isArray(body.tools)) {
     body.tools.forEach((tool, index) => {
       normalized.toolDefinitions.push({
-        name: tool.function?.name || 'unknown',
+        name: tool.function?.name || tool.name || 'unknown',
         raw: tool,
         source: sourceRef({ provider: 'openai', msgIndex: 0, partIndex: index, role: 'system', path: `tools[${index}]` }),
       });
     });
   }
 
-  if (!Array.isArray(body.messages)) return;
+  if (typeof body.instructions === 'string' && body.instructions) {
+    pushSystemPrompt(normalized, body.instructions, sourceRef({ provider: 'openai', msgIndex: 0, partIndex: 0, role: 'system', path: 'instructions' }));
+  }
+
+  if (!Array.isArray(body.messages)) {
+    normalizeOpenAIResponsesInput(body, normalized);
+    return;
+  }
   body.messages.forEach((msg, msgIndexZero) => {
     const msgIndex = msgIndexZero + 1;
     const base = {
@@ -334,6 +341,60 @@ function normalizeOpenAI(body, normalized) {
         source: sourceRef({ ...base, partIndex: 0 }),
       });
     }
+  });
+}
+
+function normalizeOpenAIResponsesInput(body, normalized) {
+  // OpenAI Responses API (/v1/responses): `instructions` + `input` instead of `messages`.
+  const input = body.input;
+  if (typeof input === 'string' && input) {
+    pushMessageItem(normalized, {
+      category: 'user_text',
+      role: 'user',
+      text: input,
+      raw: input,
+      name: null,
+      source: sourceRef({ provider: 'openai', role: 'user', msgIndex: 1, partIndex: 0, path: 'input' }),
+    });
+    return;
+  }
+  if (!Array.isArray(input)) return;
+  input.forEach((item, index) => {
+    const msgIndex = index + 1;
+    if (!item || typeof item !== 'object') return;
+    if (item.type === 'function_call') {
+      pushMessageItem(normalized, {
+        category: 'tool_calls',
+        role: 'assistant',
+        text: stringifyValue(item),
+        raw: item,
+        name: item.name || 'unknown',
+        id: item.call_id || item.id,
+        source: sourceRef({ provider: 'openai', role: 'assistant', msgIndex, partIndex: 0, path: `input[${index}]` }),
+      });
+      return;
+    }
+    if (item.type === 'function_call_output') {
+      pushMessageItem(normalized, {
+        category: 'tool_results',
+        role: 'tool',
+        text: stringifyValue(item.output),
+        raw: item.output,
+        name: null,
+        toolCallId: item.call_id,
+        source: sourceRef({ provider: 'openai', role: 'tool', msgIndex, partIndex: 0, path: `input[${index}]` }),
+      });
+      return;
+    }
+    const role = item.role || 'user';
+    pushMessageItem(normalized, {
+      category: role === 'assistant' ? 'assistant_text' : 'user_text',
+      role,
+      text: stringifyValue(item.content !== undefined ? item.content : item),
+      raw: item.content !== undefined ? item.content : item,
+      name: null,
+      source: sourceRef({ provider: 'openai', role, msgIndex, partIndex: 0, path: `input[${index}]` }),
+    });
   });
 }
 
