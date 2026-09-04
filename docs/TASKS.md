@@ -146,3 +146,22 @@ npm audit --audit-level=high
 - Tests: `test/comparison-ui.test.js` +1 (count variants, singular/plural/zero, inactive).
 - Validate: `npm test -- test/comparison-ui.test.js`, `node --check public/js/app.js`.
 - Status: completed.
+
+## Phase 3 — Next Builds (completed 2026-09-04)
+
+### N1. Configurable background analysis windows
+- Evidence: scheduler precomputed only 7d while the UI polls 14/30d views → full recompute every 5s on those views.
+- Changed: `CONTEXT_REVIEW_ANALYSIS_DAYS` (default `7`, max 4 windows) parsed by `resolveDaysList`; `/api/ops/summary` exposes `analysis` block (daysList, lastRunAt, counters, lastError) so coverage is observable.
+- Tests: `test/background.test.js` +2 (env parsing, multi-window refresh).
+- Status: completed.
+
+### N2. Budget local-vs-server conflict surfacing
+- Evidence: server thresholds silently win over browser-local ones (split-brain with no UI signal).
+- Changed: `describeThresholdConflict` helper + conflict notice with "Load Local Into Editor" resolve action in the Project Scope card; raw server snapshot tracked separately from editor drafts to avoid spurious conflicts.
+- Tests: `test/budget-helpers.test.js` +1.
+- Status: completed.
+
+### N3. Recovery exercise against real operator data
+- Evidence (isolated copy of live `data/sessions.json`, 20 sessions / 90 captures, copy destroyed after): migration verification OK; event-mode boot replays 20/90 healthy in 6ms; compaction dry-run OK; torn-tail + reboot recovers 20/90 with `recovered=true`, `degraded=false`.
+- Note: an early `--help` probe of `migrate-to-event-log.js` executed a live migration (script has no help flag and runs unconditionally). `sessions.json` was untouched; the derived `data/events.ndjson` was removed to restore prior state. Follow-up: add `--help`/dry-run-default guard to that script.
+- Status: completed (exercise only; no production data touched beyond the restored incident above).

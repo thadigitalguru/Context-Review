@@ -99,6 +99,24 @@
     return Object.keys(thresholds).some((key) => Number(thresholds[key]) !== Number(defaults[key]));
   }
 
+  // Compares stored server thresholds against browser-local ones so the UI
+  // can surface a split-brain instead of silently preferring the server.
+  // Returns null when there is nothing to resolve.
+  function describeThresholdConflict(serverThresholds, localThresholds) {
+    if (!serverThresholds || !localThresholds) return null;
+    const fields = [
+      'maxAvgInputTokensPerRequest',
+      'maxAvgCostPerRequest',
+      'maxTotalCostPerProject',
+      'maxSessionCost',
+    ].filter((key) => Number(serverThresholds[key]) !== Number(localThresholds[key]));
+    if (fields.length === 0) return null;
+    return {
+      fields,
+      message: `Browser-local settings differ from stored project settings (${fields.length} field${fields.length === 1 ? '' : 's'}).`,
+    };
+  }
+
   function buildBudgetExportPayload(options = {}) {
     const project = String(options.project || 'default');
     const thresholds = normalizeThresholds(options.thresholds || {});
@@ -165,6 +183,7 @@
     clearThresholds,
     buildBudgetView,
     isUsingCustomThresholds,
+    describeThresholdConflict,
     buildBudgetExportPayload,
     buildBudgetShareText,
     parseBudgetShareText,

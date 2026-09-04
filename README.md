@@ -333,6 +333,7 @@ GitHub Actions workflow: `.github/workflows/ci-smoke.yml`.
 - Analysis logic is split into `src/analysis/session-analysis.js` to keep API routing thin.
 - Normalized parser schema is explicitly versioned (`1.x.x`) with compatibility guards in `src/parser/normalize.js`.
 - Background analysis caching runs in `src/analysis/background.js` and precomputes summary/CI windows.
+- Precomputed windows default to `7` days; override with `CONTEXT_REVIEW_ANALYSIS_DAYS=7,14,30` (max 4) to match the windows the dashboard polls. Coverage is observable in `GET /api/ops/summary` under `analysis`.
 - Optional event-log mode (`CONTEXT_REVIEW_EVENT_LOG=1`) appends capture events to `data/events.ndjson` while preserving local-first `sessions.json` mode.
 - Recommended adapter toggle: `CONTEXT_REVIEW_STORAGE_ADAPTER=event` (`flat` remains default).
 - Migration path: `npm run migrate:event-log` seeds `events.ndjson` from existing `sessions.json`.

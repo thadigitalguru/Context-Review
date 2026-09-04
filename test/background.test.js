@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 process.env.CONTEXT_REVIEW_DISABLE_PERSISTENCE = '1';
 
-const { BackgroundAnalysisScheduler } = require('../src/analysis/background');
+const { BackgroundAnalysisScheduler, resolveDaysList } = require('../src/analysis/background');
 
 function throwingStorage() {
   return {
@@ -49,6 +49,25 @@ test('scheduler skips overlapping refreshes', () => {
   const result = scheduler.refreshDays([7]);
   assert.equal(result.skipped, true);
   scheduler.refreshing = false;
+  scheduler.stop();
+});
+
+test('resolveDaysList parses env windows with fallback and cap', () => {
+  assert.deepEqual(resolveDaysList(undefined), [7]);
+  assert.deepEqual(resolveDaysList(''), [7]);
+  assert.deepEqual(resolveDaysList('7,14,30'), [7, 14, 30]);
+  assert.deepEqual(resolveDaysList('14,14,7'), [14, 7]);
+  assert.deepEqual(resolveDaysList('0,-3,abc,30'), [30]);
+  assert.deepEqual(resolveDaysList('1,2,3,4,5'), [1, 2, 3, 4]);
+  assert.deepEqual(resolveDaysList('garbage'), [7]);
+});
+
+test('scheduler honors explicit daysList and multi-window refresh', () => {
+  const scheduler = new BackgroundAnalysisScheduler(emptyStorage(), { intervalMs: 60000, daysList: [7, 14] });
+  assert.deepEqual(scheduler.daysList, [7, 14]);
+  const result = scheduler.refreshDays([7, 14]);
+  assert.equal(result.succeeded, 2);
+  assert.ok(scheduler.getReportSummaryEntry(14));
   scheduler.stop();
 });
 

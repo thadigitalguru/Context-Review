@@ -8,6 +8,7 @@ const {
   loadThresholds,
   clearThresholds,
   isUsingCustomThresholds,
+  describeThresholdConflict,
   buildBudgetExportPayload,
   buildBudgetShareText,
   parseBudgetShareText,
@@ -101,4 +102,23 @@ test('budget helpers persist to a provided storage implementation', () => {
   assert.deepEqual(loadThresholds(storage), normalizeThresholds(thresholds));
   assert.equal(clearThresholds(storage), true);
   assert.equal(loadThresholds(storage), null);
+});
+
+test('describeThresholdConflict flags server/local split-brain with fields', () => {
+  const server = {
+    maxAvgInputTokensPerRequest: 1500,
+    maxAvgCostPerRequest: 0.05,
+    maxTotalCostPerProject: 1.0,
+    maxSessionCost: 0.25,
+  };
+  assert.equal(describeThresholdConflict(server, { ...server }), null);
+  assert.equal(describeThresholdConflict(server, null), null);
+  assert.equal(describeThresholdConflict(null, server), null);
+  const conflict = describeThresholdConflict(server, { ...server, maxAvgCostPerRequest: 0.09, maxSessionCost: 0.5 });
+  assert.ok(conflict);
+  assert.deepEqual(conflict.fields, ['maxAvgCostPerRequest', 'maxSessionCost']);
+  assert.match(conflict.message, /2 fields/);
+  const single = describeThresholdConflict(server, { ...server, maxTotalCostPerProject: 2.0 });
+  assert.deepEqual(single.fields, ['maxTotalCostPerProject']);
+  assert.match(single.message, /1 field[^s]/);
 });

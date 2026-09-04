@@ -56,6 +56,7 @@ let state = {
   budgetThresholds: null,
   budgetProject: 'default',
   budgetSettingsSource: 'default',
+  budgetServerThresholds: null,
   budgetSettingsList: [],
   budgetActionState: {
     message: '',
@@ -915,11 +916,13 @@ async function syncBudgetSettingsForProject(project) {
   const response = await fetchJsonWithStatus(`/budget/settings?project=${encodeURIComponent(normalizedProject)}`);
   if (response.ok && response.payload?.thresholds) {
     state.budgetThresholds = budgetHelpers ? budgetHelpers.normalizeThresholds(response.payload.thresholds, response.payload.thresholds) : response.payload.thresholds;
+    state.budgetServerThresholds = state.budgetThresholds;
     state.budgetSettingsSource = response.payload.source || 'default';
     return;
   }
   if (response.status === 403) {
     state.budgetThresholds = state.reportSummary?.budget?.thresholds || null;
+    state.budgetServerThresholds = null;
     state.budgetSettingsSource = 'forbidden';
     state.budgetActionState = { message: '', error: response.error };
     return;
@@ -931,9 +934,11 @@ async function syncBudgetSettingsForProject(project) {
   if (budgetHelpers) {
     const local = budgetHelpers.loadThresholds();
     state.budgetThresholds = local;
+    state.budgetServerThresholds = null;
     state.budgetSettingsSource = local ? 'local' : 'default';
   } else {
     state.budgetThresholds = null;
+    state.budgetServerThresholds = null;
     state.budgetSettingsSource = 'default';
   }
 }
@@ -973,6 +978,9 @@ function renderBudgetGuardrails() {
         ? 'access restricted by auth scope'
         : 'report defaults';
   const projectOptions = buildBudgetProjectOptions();
+  const thresholdConflict = state.budgetSettingsSource === 'storage' && budgetHelpers
+    ? budgetHelpers.describeThresholdConflict(state.budgetServerThresholds, budgetHelpers.loadThresholds())
+    : null;
 
   return `<div class="workflow-section">
     <div class="section-header">
@@ -996,6 +1004,8 @@ function renderBudgetGuardrails() {
         </div>
         ${state.budgetActionState?.message ? `<div class="workflow-card-sub">${escapeHtml(state.budgetActionState.message)}</div>` : ''}
         ${state.budgetActionState?.error ? `<div class="workflow-card-sub" style="color:var(--red)">${escapeHtml(state.budgetActionState.error)}</div>` : ''}
+        ${thresholdConflict ? `<div class="workflow-card-sub" style="color:var(--orange)">${escapeHtml(thresholdConflict.message)}</div>
+        <div class="ops-actions" style="margin-top:6px"><button class="finding-action-btn" onclick="applyLocalThresholds()">Load Local Into Editor</button></div>` : ''}
         <div class="workflow-card-sub">Choose a project to load or edit its stored budget thresholds.</div>
       </div>
       <div class="workflow-card">
@@ -1056,6 +1066,16 @@ function updateBudgetThreshold(field, value) {
   const next = { ...(state.budgetThresholds || {}) };
   next[field] = value;
   state.budgetThresholds = budgetHelpers ? budgetHelpers.normalizeThresholds(next, state.reportSummary?.budget?.thresholds || {}) : next;
+  renderMain();
+}
+
+function applyLocalThresholds() {
+  if (!budgetHelpers) return;
+  const local = budgetHelpers.loadThresholds();
+  if (!local) return;
+  const base = state.reportSummary?.budget?.thresholds || {};
+  state.budgetThresholds = budgetHelpers.normalizeThresholds(local, base);
+  state.budgetActionState = { message: 'Loaded browser-local settings into the editor. Save to apply them to the project.', error: '' };
   renderMain();
 }
 

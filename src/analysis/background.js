@@ -4,7 +4,9 @@ class BackgroundAnalysisScheduler {
   constructor(storage, options = {}) {
     this.storage = storage;
     this.intervalMs = Number(options.intervalMs || process.env.ANALYSIS_INTERVAL_MS || 15000);
-    this.daysList = Array.isArray(options.daysList) && options.daysList.length > 0 ? options.daysList : [7];
+    this.daysList = Array.isArray(options.daysList) && options.daysList.length > 0
+      ? options.daysList
+      : resolveDaysList(process.env.CONTEXT_REVIEW_ANALYSIS_DAYS);
     this.timer = null;
     this.reportCache = new Map();
     this.ciCache = new Map();
@@ -102,4 +104,19 @@ class BackgroundAnalysisScheduler {
   }
 }
 
-module.exports = { BackgroundAnalysisScheduler };
+// Comma-separated day windows to precompute (e.g. "7,14,30"). Invalid and
+// non-positive entries are dropped; empty input falls back to [7]. Capped at
+// 4 windows to bound background work.
+function resolveDaysList(raw) {
+  const fallback = [7];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+  const days = String(raw)
+    .split(',')
+    .map((part) => Number(String(part).trim()))
+    .filter((d) => Number.isFinite(d) && d > 0)
+    .map((d) => Math.floor(d));
+  const unique = [...new Set(days)];
+  return (unique.length > 0 ? unique : fallback).slice(0, 4);
+}
+
+module.exports = { BackgroundAnalysisScheduler, resolveDaysList };

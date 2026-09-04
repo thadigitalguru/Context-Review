@@ -531,6 +531,13 @@ function createAPIRouter(storage, options = {}) {
       },
       storage: storageStatus,
       latency: latencyStore.snapshot(),
+      analysis: analysisScheduler ? {
+        daysList: analysisScheduler.daysList || [],
+        lastRunAt: analysisScheduler.lastRunAt || null,
+        refreshesTotal: analysisScheduler.refreshesTotal || 0,
+        refreshErrorsTotal: analysisScheduler.refreshErrorsTotal || 0,
+        lastError: analysisScheduler.lastError || null,
+      } : { disabled: true },
       ci,
     });
   });
