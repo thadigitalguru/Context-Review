@@ -4,7 +4,7 @@ The dashboard runs on port 5000 and the proxy runs on port 8080.
 
 Supported request families:
 - Anthropic: /v1/messages
-- OpenAI: /v1/chat/completions
+- OpenAI: /v1/chat/completions, /v1/responses
 - Google: /v1beta/models/*
 
 Core flow:
@@ -15,7 +15,7 @@ Core flow:
 5. The API routes expose sessions, captures, composition, timeline, diffs, findings, stats, and LHAR export to the frontend.
 
 Current implementation notes:
-- Token counting is heuristic, based mostly on string length.
-- Session data persists to data/sessions.json.
-- There is no automated test suite in the repo yet.
-- The project currently has a single initial commit and a small, readable codebase.
+- Token counting uses tiktoken for supported OpenAI models with a chars-based heuristic fallback (Anthropic/Google are heuristic-only).
+- Session data persists to data/sessions.json (flat-file default) with an optional event-log adapter (data/events.ndjson).
+- Automated tests run via `npm test` (node:test); CI smoke/benchmark gates run via `npm run smoke:e2e` and `npm run ci:*`.
+- Proxy captures upstream API keys only in redacted form; storage persists breakdowns plus request method/path (no raw headers/bodies).

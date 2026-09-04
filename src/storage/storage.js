@@ -236,6 +236,24 @@ class SessionStorage {
     return this.captures.filter(c => c.sessionId === sessionId);
   }
 
+  getCacheTokensBySession() {
+    // Single-pass aggregation for list endpoints; avoids an O(sessions × captures)
+    // filter scan per session on hot read paths (/sessions, /stats).
+    const bySession = new Map();
+    for (const c of this.captures) {
+      const tokens = c.breakdown?.response_tokens;
+      if (!tokens) continue;
+      const read = tokens.cacheRead || 0;
+      const creation = tokens.cacheCreation || 0;
+      if (read === 0 && creation === 0) continue;
+      const current = bySession.get(c.sessionId) || { read: 0, creation: 0 };
+      current.read += read;
+      current.creation += creation;
+      bySession.set(c.sessionId, current);
+    }
+    return bySession;
+  }
+
   getCaptureDetail(captureId) {
     return this.captures.find(c => c.id === captureId) || null;
   }
@@ -318,11 +336,26 @@ class SessionStorage {
     if (this.maintenanceIntervalMinutes <= 0) return;
     if (this.persistenceDisabled) return;
     if (this.adapterMode !== 'event') return;
+    if (this.maintenanceTimer) return;
     const intervalMs = this.maintenanceIntervalMinutes * 60 * 1000;
     this.maintenanceTimer = setInterval(() => {
-      this.runMaintenanceCompaction({ reason: 'scheduled_maintenance' });
+      try {
+        this.runMaintenanceCompaction({ reason: 'scheduled_maintenance' });
+      } catch (err) {
+        console.error(`Scheduled maintenance error: ${err && err.message ? err.message : err}`);
+      }
     }, intervalMs);
     if (this.maintenanceTimer.unref) this.maintenanceTimer.unref();
+  }
+
+  stopMaintenanceScheduler() {
+    if (!this.maintenanceTimer) return;
+    clearInterval(this.maintenanceTimer);
+    this.maintenanceTimer = null;
+  }
+
+  close() {
+    this.stopMaintenanceScheduler();
   }
 
   getStorageStatus() {

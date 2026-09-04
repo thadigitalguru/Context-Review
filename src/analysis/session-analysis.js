@@ -272,11 +272,18 @@ function buildBudgetSummary(rows, thresholds) {
 
 function resolveBudgetThresholds() {
   return {
-    maxAvgInputTokensPerRequest: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_INPUT_TOKENS_PER_REQUEST || DEFAULT_BUDGET_THRESHOLDS.maxAvgInputTokensPerRequest),
-    maxAvgCostPerRequest: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_COST_PER_REQUEST || DEFAULT_BUDGET_THRESHOLDS.maxAvgCostPerRequest),
-    maxTotalCostPerProject: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_TOTAL_COST_PER_PROJECT || DEFAULT_BUDGET_THRESHOLDS.maxTotalCostPerProject),
-    maxSessionCost: Number(process.env.CONTEXT_REVIEW_BUDGET_MAX_SESSION_COST || DEFAULT_BUDGET_THRESHOLDS.maxSessionCost),
+    maxAvgInputTokensPerRequest: toFiniteNumber(process.env.CONTEXT_REVIEW_BUDGET_MAX_INPUT_TOKENS_PER_REQUEST, DEFAULT_BUDGET_THRESHOLDS.maxAvgInputTokensPerRequest),
+    maxAvgCostPerRequest: toFiniteNumber(process.env.CONTEXT_REVIEW_BUDGET_MAX_COST_PER_REQUEST, DEFAULT_BUDGET_THRESHOLDS.maxAvgCostPerRequest),
+    maxTotalCostPerProject: toFiniteNumber(process.env.CONTEXT_REVIEW_BUDGET_MAX_TOTAL_COST_PER_PROJECT, DEFAULT_BUDGET_THRESHOLDS.maxTotalCostPerProject),
+    maxSessionCost: toFiniteNumber(process.env.CONTEXT_REVIEW_BUDGET_MAX_SESSION_COST, DEFAULT_BUDGET_THRESHOLDS.maxSessionCost),
   };
+}
+
+function toFiniteNumber(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
 }
 
 function createBudgetRow(project) {

@@ -20,12 +20,21 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api', createAPIRouter(storage, { analysisScheduler: backgroundAnalysisEnabled ? analysisScheduler : null }));
 
+// Error middleware (must be registered after routes).
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(`Dashboard error: ${err && err.message ? err.message : err}`);
+  if (res.headersSent) return;
+  const status = err && Number.isFinite(err.status) ? err.status : 500;
+  res.status(status).json({ error: status === 500 ? 'Internal server error' : (err.message || 'Request failed') });
+});
+
 app.get('/app', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
 app.get('/landing', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/', (req, res) => {
@@ -34,19 +43,28 @@ app.get('/', (req, res) => {
 
 const DASHBOARD_PORT = Number(process.env.DASHBOARD_PORT || process.env.PORT || 5000);
 const DASHBOARD_HOST = process.env.DASHBOARD_HOST || '0.0.0.0';
-app.listen(DASHBOARD_PORT, DASHBOARD_HOST, () => {
+const dashboardServer = app.listen(DASHBOARD_PORT, DASHBOARD_HOST, () => {
   console.log(`Dashboard running on http://${DASHBOARD_HOST}:${DASHBOARD_PORT}`);
 });
+dashboardServer.on('error', (err) => {
+  console.error(`Dashboard server error: ${err.message}`);
+  process.exitCode = 1;
+});
 
+let proxyServer = null;
 const proxyDisabled = process.env.CONTEXT_REVIEW_DISABLE_PROXY === '1';
 if (proxyDisabled) {
   console.log('Proxy startup skipped (CONTEXT_REVIEW_DISABLE_PROXY=1).');
 } else {
-  const proxyServer = createProxyServer((captureData) => {
-    console.log(`[Proxy] Captured ${captureData.provider} request: ${captureData.request.path}`);
-    const breakdown = parseRequest(captureData);
-    const result = storage.addCapture(captureData, breakdown);
-    console.log(`[Proxy] Session: ${result.sessionId}, Capture: ${result.captureId}, Tokens: ${breakdown ? breakdown.total_tokens : 0}`);
+  proxyServer = createProxyServer((captureData) => {
+    try {
+      console.log(`[Proxy] Captured ${captureData.provider} request: ${captureData.request.path}`);
+      const breakdown = parseRequest(captureData);
+      const result = storage.addCapture(captureData, breakdown);
+      console.log(`[Proxy] Session: ${result.sessionId}, Capture: ${result.captureId}, Tokens: ${breakdown ? breakdown.total_tokens : 0}`);
+    } catch (err) {
+      console.error(`[Proxy] Capture handling failed: ${err && err.message ? err.message : err}`);
+    }
   });
 
   const PROXY_PORT = Number(process.env.PROXY_PORT || 8080);
@@ -75,3 +93,21 @@ if (proxyDisabled) {
     console.log('');
   });
 }
+
+function shutdown(signal) {
+  console.log(`Received ${signal}, shutting down...`);
+  try {
+    if (backgroundAnalysisEnabled) analysisScheduler.stop();
+  } catch { /* best effort */ }
+  try {
+    if (storage && typeof storage.close === 'function') storage.close();
+  } catch { /* best effort */ }
+  const closers = [];
+  if (proxyServer) closers.push(new Promise((resolve) => proxyServer.close(() => resolve())));
+  closers.push(new Promise((resolve) => dashboardServer.close(() => resolve())));
+  Promise.all(closers).finally(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

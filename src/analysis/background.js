@@ -9,12 +9,26 @@ class BackgroundAnalysisScheduler {
     this.reportCache = new Map();
     this.ciCache = new Map();
     this.lastRunAt = null;
+    this.refreshing = false;
+    this.lastError = null;
+    this.refreshesTotal = 0;
+    this.refreshErrorsTotal = 0;
   }
 
   start() {
     if (this.timer) return;
-    this.refresh();
-    this.timer = setInterval(() => this.refresh(), this.intervalMs);
+    try {
+      this.refresh();
+    } catch (err) {
+      this.recordError(err);
+    }
+    this.timer = setInterval(() => {
+      try {
+        this.refresh();
+      } catch (err) {
+        this.recordError(err);
+      }
+    }, this.intervalMs);
     if (typeof this.timer.unref === 'function') this.timer.unref();
   }
 
@@ -29,16 +43,36 @@ class BackgroundAnalysisScheduler {
   }
 
   refreshDays(daysList) {
-    const now = Date.now();
-    const uniqueDays = [...new Set((Array.isArray(daysList) ? daysList : []).map((d) => Number(d)).filter((d) => Number.isFinite(d) && d > 0))];
-    const targets = uniqueDays.length > 0 ? uniqueDays : this.daysList;
-    for (const days of targets) {
-      const report = buildReportsSummary(this.storage, days);
-      const ci = buildCISummary(this.storage, days);
-      this.reportCache.set(days, { data: report, refreshedAt: now, cacheAgeMs: 0 });
-      this.ciCache.set(days, { data: ci, refreshedAt: now, cacheAgeMs: 0 });
+    if (this.refreshing) return { skipped: true, reason: 'refresh_in_progress' };
+    this.refreshing = true;
+    try {
+      const now = Date.now();
+      const uniqueDays = [...new Set((Array.isArray(daysList) ? daysList : []).map((d) => Number(d)).filter((d) => Number.isFinite(d) && d > 0))];
+      const targets = uniqueDays.length > 0 ? uniqueDays : this.daysList;
+      let succeeded = 0;
+      for (const days of targets) {
+        try {
+          const report = buildReportsSummary(this.storage, days);
+          const ci = buildCISummary(this.storage, days);
+          this.reportCache.set(days, { data: report, refreshedAt: now, cacheAgeMs: 0 });
+          this.ciCache.set(days, { data: ci, refreshedAt: now, cacheAgeMs: 0 });
+          succeeded += 1;
+        } catch (err) {
+          this.recordError(err);
+        }
+      }
+      if (succeeded > 0) this.lastRunAt = now;
+      this.refreshesTotal += 1;
+      return { skipped: false, succeeded, attempted: targets.length };
+    } finally {
+      this.refreshing = false;
     }
-    this.lastRunAt = now;
+  }
+
+  recordError(err) {
+    this.lastError = { message: err && err.message ? err.message : String(err), at: Date.now() };
+    this.refreshErrorsTotal += 1;
+    console.error(`Background analysis error: ${this.lastError.message}`);
   }
 
   getReportSummary(days) {

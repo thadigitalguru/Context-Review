@@ -73,6 +73,7 @@ function createAPIRouter(storage, options = {}) {
     const paged = limit !== null || req.query.offset !== undefined || String(req.query.paged || '') === '1';
 
     const selected = limit !== null ? sessions.slice(offset, offset + limit) : sessions.slice(offset);
+    const cacheTokensBySession = lite ? null : getCacheTokensBySession(storage);
     const enriched = selected.map((session) => {
       if (lite) {
         return {
@@ -88,7 +89,7 @@ function createAPIRouter(storage, options = {}) {
           lastActivity: session.lastActivity,
         };
       }
-      const cacheTokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
+      const cacheTokens = cacheTokensBySession.get(session.id) || null;
       const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
       return {
         ...session,
@@ -339,6 +340,9 @@ function createAPIRouter(storage, options = {}) {
   });
 
   router.post('/ci/check', (req, res) => {
+    if (req.body !== undefined && (req.body === null || typeof req.body !== 'object' || Array.isArray(req.body))) {
+      return res.status(400).json({ error: 'CI check payload must be a JSON object' });
+    }
     const scopedStorage = createScopedStorageView(storage, req.auth);
     const report = runCICheck(scopedStorage, req.body || {});
     res.status(report.passed ? 200 : 422).json(report);
@@ -357,6 +361,7 @@ function createAPIRouter(storage, options = {}) {
   router.get('/stats', (req, res) => {
     const scoped = scopeSessionsForAuth(storage.getSessions(), req.auth);
     const sessions = filterSessions(scoped, req.query);
+    const statsCacheTokens = getCacheTokensBySession(storage);
     let totalRequests = 0;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -366,7 +371,7 @@ function createAPIRouter(storage, options = {}) {
       totalRequests += session.requestCount;
       totalInputTokens += session.totalInputTokens;
       totalOutputTokens += session.totalOutputTokens;
-      const cacheTokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
+      const cacheTokens = statsCacheTokens.get(session.id) || null;
       const cost = calculateCost(session.totalInputTokens, session.totalOutputTokens, session.model, cacheTokens);
       totalCost += cost.totalCost;
     }
@@ -579,8 +584,18 @@ function runActionSimulation(storage, payload) {
 
   const actions = normalizeActions(payload.actions);
   if (actions.length === 0) return { error: 'No valid actions provided' };
+  const invalid = actions.map((action) => action.type).filter((type) => !SIMULATION_ACTION_TYPES.has(type));
+  if (invalid.length > 0) {
+    return { error: `Unknown simulation action type(s): ${[...new Set(invalid)].join(', ')}. Supported: ${[...SIMULATION_ACTION_TYPES].join(', ')}` };
+  }
 
-  const simulated = applySimulationActions(baseline.breakdown, actions);
+  let simulated;
+  try {
+    simulated = applySimulationActions(baseline.breakdown, actions);
+  } catch (err) {
+    return { error: `Simulation failed: ${err && err.message ? err.message : 'invalid breakdown payload'}` };
+  }
+  if (!simulated || !simulated.breakdown) return { error: 'Simulation failed: invalid breakdown payload' };
   const baselineInputTokens = inferInputTokens(baseline.breakdown);
   const simulatedInputTokens = inferSimulatedInputTokens(baseline.breakdown, simulated.breakdown, baselineInputTokens);
   const outputTokens = baseline.breakdown.response_tokens?.output || 0;
@@ -647,6 +662,13 @@ function normalizeActions(actions) {
     })
     .filter(Boolean);
 }
+
+const SIMULATION_ACTION_TYPES = new Set([
+  'remove_tools',
+  'trim_tool_results',
+  'compact_history',
+  'shorten_system_prompt',
+]);
 
 function applySimulationActions(breakdown, actions) {
   const draft = JSON.parse(JSON.stringify(breakdown || {}));
@@ -805,6 +827,19 @@ function extractSessionCacheTokens(captures) {
   return { read: totalRead, creation: totalCreation };
 }
 
+function getCacheTokensBySession(storage) {
+  if (storage && typeof storage.getCacheTokensBySession === 'function') {
+    return storage.getCacheTokensBySession();
+  }
+  // Fallback for scoped storage views: aggregate over visible sessions.
+  const bySession = new Map();
+  for (const session of storage.getSessions()) {
+    const tokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
+    if (tokens) bySession.set(session.id, tokens);
+  }
+  return bySession;
+}
+
 function scopeSessionsForAuth(sessions, auth) {
   if (!auth) return sessions;
   const projects = Array.isArray(auth.projects) ? auth.projects : [];
@@ -836,6 +871,22 @@ function createScopedStorageView(storage, auth) {
   return {
     getSessions() {
       return scopeSessionsForAuth(storage.getSessions(), auth);
+    },
+    getCacheTokensBySession() {
+      if (typeof storage.getCacheTokensBySession !== 'function') {
+        const bySession = new Map();
+        for (const session of this.getSessions()) {
+          const tokens = extractSessionCacheTokens(storage.getSessionCaptures(session.id));
+          if (tokens) bySession.set(session.id, tokens);
+        }
+        return bySession;
+      }
+      const visible = new Set(this.getSessions().map((session) => session.id));
+      const scoped = new Map();
+      for (const [sessionId, tokens] of storage.getCacheTokensBySession()) {
+        if (visible.has(sessionId)) scoped.set(sessionId, tokens);
+      }
+      return scoped;
     },
     getSessionCaptures(sessionId) {
       const session = storage.getSession(sessionId);

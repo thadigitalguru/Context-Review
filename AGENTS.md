@@ -27,11 +27,11 @@ Context Review is a local proxy and dashboard for inspecting LLM request context
 
 ## Immediate Technical Gaps
 
-- No automated test suite.
-- No exact tokenizer integration; token counts are heuristic.
-- SSE reconstruction is partial and provider-specific.
-- Storage is single-file JSON and not concurrency-safe.
-- No real-time push channel; dashboard likely relies on polling.
+- Token counting is tiktoken-backed for supported OpenAI models; Anthropic/Google remain heuristic (`src/tokens/counter.js` with encoding cache).
+- SSE reconstruction covers Anthropic/OpenAI deltas and Google non-SSE JSON fallback, but provider edge formats still need fixture growth.
+- Storage is single-file JSON / NDJSON event log and not safe for multi-process writers.
+- No real-time push channel; dashboard polls every 5s (`POLL_INTERVAL_MS` in `public/js/app.js`).
+- OpenAI `/v1/responses` is now routed + normalized; keep it aligned across `proxy.js`, `parser.js`/`normalize.js`, `pricing.js`, and dashboard/API surfaces.
 
 ## Safe Areas For Next Changes
 

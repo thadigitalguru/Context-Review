@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "node index.js",
     "test": "node --test",
+    "lint": "node scripts/lint.js",
     "migrate:event-log": "node scripts/migrate-to-event-log.js",
     "compact:event-log": "node scripts/compact-event-log.js",
     "ci:storage-health": "node scripts/ci-storage-health.js",

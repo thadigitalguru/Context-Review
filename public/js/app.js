@@ -3,6 +3,13 @@ const opsHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsHelp
 const opsPanelHelpers = (typeof window !== 'undefined' && window.ContextReviewOpsPanelHelpers) ? window.ContextReviewOpsPanelHelpers : null;
 const comparisonHelpers = (typeof window !== 'undefined' && window.ContextReviewComparisonHelpers) ? window.ContextReviewComparisonHelpers : null;
 const budgetHelpers = (typeof window !== 'undefined' && window.ContextReviewBudgetHelpers) ? window.ContextReviewBudgetHelpers : null;
+const appHelpers = (typeof window !== 'undefined' && window.ContextReviewAppHelpers) ? window.ContextReviewAppHelpers : null;
+
+function updateConnectionBanner(failed) {
+  if (typeof document === 'undefined') return;
+  const banner = document.getElementById('connection-banner');
+  if (banner) banner.style.display = failed ? 'block' : 'none';
+}
 let state = {
   sessions: [],
   currentSessionId: null,
@@ -169,83 +176,15 @@ function getAgentColor(agent) {
   return AGENT_COLORS[agent.id] || AGENT_COLORS[agent.name] || '#6c5ce7';
 }
 
-function computeHealth(session, composition, timeline) {
-  let score = 100;
-  if (!composition || !composition.composition) return score;
-
-  const comp = composition.composition;
-  const ctxWindow = getContextWindow(comp.model);
-  const usage = comp.total_tokens / ctxWindow;
-
-  if (usage > 0.95) score -= 40;
-  else if (usage > 0.8) score -= 25;
-  else if (usage > 0.6) score -= 10;
-
-  const cats = comp.categories;
-  const toolResults = cats.find(c => c.key === 'tool_results');
-  if (toolResults && toolResults.percentage > 60) score -= 15;
-  else if (toolResults && toolResults.percentage > 40) score -= 8;
-
-  const toolDefs = cats.find(c => c.key === 'tool_definitions');
-  if (toolDefs && toolDefs.percentage > 30) score -= 10;
-
-  if (timeline && timeline.length >= 2) {
-    const last = timeline.slice(-3);
-    let totalGrowth = 0;
-    for (let i = 1; i < last.length; i++) {
-      totalGrowth += (last[i].breakdown.total - last[i - 1].breakdown.total);
-    }
-    const avgGrowth = totalGrowth / (last.length - 1);
-    if (avgGrowth > 10000) score -= 15;
-    else if (avgGrowth > 5000) score -= 8;
-  }
-
-  return Math.max(0, Math.min(100, score));
-}
-
-function getContextWindow(model) {
-  const windows = {
-    'claude-sonnet-4-20250514': 200000, 'claude-3-5-sonnet-20241022': 200000,
-    'claude-3-opus-20240229': 200000, 'claude-opus-4-20250514': 200000,
-    'gpt-4o': 128000, 'gpt-4o-mini': 128000, 'gpt-4-turbo': 128000,
-    'o1': 200000, 'o3': 200000,
-    'gemini-2.5-pro': 1048576, 'gemini-2.5-flash': 1048576,
-  };
-  if (!model) return 200000;
-  for (const [k, v] of Object.entries(windows)) {
-    if (model.includes(k)) return v;
-  }
-  if (model.includes('claude')) return 200000;
-  if (model.includes('gpt')) return 128000;
-  if (model.includes('gemini')) return 1048576;
-  return 200000;
-}
-
-function healthColor(score) {
-  if (score >= 70) return 'var(--green)';
-  if (score >= 40) return 'var(--orange)';
-  return 'var(--red)';
-}
-
-function healthClass(score) {
-  if (score >= 70) return 'good';
-  if (score >= 40) return 'warning';
-  return 'critical';
-}
-
-function healthLabel(score) {
-  if (score >= 80) return 'healthy';
-  if (score >= 60) return 'moderate risk';
-  if (score >= 40) return 'elevated risk';
-  if (score >= 20) return 'high risk';
-  return 'critical risk';
-}
+// Health scoring, context windows, and health presentation live in
+// app-helpers.js (global bare functions + ContextReviewAppHelpers).
 
 async function refresh() {
   const sessionsPath = comparisonHelpers
     ? comparisonHelpers.buildSessionsApiPath(state.comparisonFilter)
     : '/sessions';
-  let sessions = await api(sessionsPath) || [];
+  const sessionsRaw = await api(sessionsPath);
+  let sessions = sessionsRaw || [];
   if (comparisonHelpers && state.comparisonFilter?.active && Array.isArray(state.comparisonFilter.sessionIds) && state.comparisonFilter.sessionIds.length > 0) {
     sessions = comparisonHelpers.filterSessionsByIds(sessions, state.comparisonFilter.sessionIds);
   }
@@ -280,6 +219,7 @@ async function refresh() {
   state.reportComparison = reportComparison;
   state.opsSummary = opsSummary;
   state.budgetSettingsList = Array.isArray(budgetSettingsList?.items) ? budgetSettingsList.items : [];
+  updateConnectionBanner(appHelpers ? appHelpers.isRefreshFailure({ stats, sessions: sessionsRaw, reportSummary }) : false);
 
   if (state.currentSessionId) {
     const [session, captures, timeline, findings, diffs, trends] = await Promise.all([
@@ -2275,6 +2215,7 @@ async function loadDemoData() {
 }
 
 let isRefreshing = false;
+const POLL_INTERVAL_MS = 5000;
 document.addEventListener('DOMContentLoaded', () => {
   restoreComparisonFilterFromUrl();
   restoreComparisonPresetsFromStorage();
@@ -2285,5 +2226,5 @@ document.addEventListener('DOMContentLoaded', () => {
       isRefreshing = true;
       refresh().finally(() => { isRefreshing = false; });
     }
-  }, 5000);
+  }, POLL_INTERVAL_MS);
 });
